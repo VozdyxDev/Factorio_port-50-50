@@ -245,6 +245,36 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             envVars.remove("ZINK_DEBUG");
             envVars.remove("MESA_GL_VERSION_OVERRIDE");
         }
+
+        // ZINKDRI=1 (container variable): "Pocket Foundry" way of drawing, for comparison with the xlib Zink of block 1.
+        //   libGL (glx=dri) -> Zink (kopper) -> Turnip, frames presented through DRI3/Present instead of XPutImage.
+        //   ZINKDRI_FILE=/storage/emulated/0/Download/zinkdri-1.tzst  use this package instead of the APK asset
+        //   ZINKDRI_SW=1                                              Vulkan WSI software path (shm), to tell WSI problems from driver problems
+        // Only block 1 (Turnip + Zink) is affected; without ZINKDRI=1 nothing here runs.
+        String[] zinkDriIds = GraphicsDrivers.parseIdentifiers(selectedContainer.getGraphicsDriver());
+        boolean zinkDri = "1".equals(envVars.get("ZINKDRI")) && !nativeGL
+                && GraphicsDrivers.TURNIP.equals(zinkDriIds[0]) && GraphicsDrivers.ZINK.equals(zinkDriIds[1]);
+        if (zinkDri) {
+            File zinkDriDir;
+            try {
+                zinkDriDir = com.factorio.core.ZinkDri.prepare(environment.getContext(), rootDir, envVars.get("ZINKDRI_FILE"));
+            } catch (java.io.IOException e) {
+                android.util.Log.e("Factorio", "Cannot prepare ZinkDri", e);
+                return -1;
+            }
+            libPath = zinkDriDir+"/lib:"+libPath;
+            envVars.put("LIBGL_DRIVERS_PATH", zinkDriDir+"/dri");
+            envVars.put("VK_DRIVER_FILES", zinkDriDir+"/vulkan/icd.json");
+            envVars.put("VK_ICD_FILENAMES", zinkDriDir+"/vulkan/icd.json");   // older loaders
+            envVars.put("MESA_LOADER_DRIVER_OVERRIDE", "zink");
+            envVars.put("__GLX_VENDOR_LIBRARY_NAME", "mesa");
+            envVars.remove("GALLIUM_DRIVER");            // xlib-Zink variable, not for the DRI path
+            envVars.remove("ZINK_CONTEXT_THREADED");     // Pocket Foundry runs without it
+            envVars.remove("MESA_GL_VERSION_OVERRIDE");
+            envVars.remove("MESA_VK_WSI_USE_HWBUF");     // option of the custom Turnip build, not of this Mesa
+            if ("1".equals(envVars.get("ZINKDRI_SW"))) envVars.put("MESA_VK_WSI_DEBUG", "sw");
+            android.util.Log.i("Factorio", "ZINKDRI on: " + zinkDriDir);
+        }
         envVars.put("LD_LIBRARY_PATH", libPath);
 
         // Factorio does not know that it runs through the glibc loader:

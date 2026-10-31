@@ -1,0 +1,6 @@
+0001-x11-wait-for-the-frame-before-presenting.patch
+  From Pocket Foundry (https://github.com/JulioFerrero/pocket-foundry, runtime/mesa/patches/), GPL-3.0 project.
+  Patches Mesa (MIT) src/vulkan/wsi/wsi_common_x11.c: always wait for the frame's fence before PresentPixmap
+  (KGSL dma-bufs have no implicit fences -> half-drawn frames / black flashes).
+  Made against lfdevs/mesa-for-android-container, commit 6f90e92dfdacc4759d8e9ccb328805d0f0b4439b.
+  On another Mesa it may not apply: the workflow stops with a message in that case.

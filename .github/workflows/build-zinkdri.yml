@@ -1,0 +1,210 @@
+name: Build Zink DRI3 (Zink + Turnip, Vulkan WSI present, glibc)
+
+# "Pocket Foundry" way of drawing: ONE private Mesa folder with
+#   libGL.so.1 (glx=dri) -> Zink (kopper, Vulkan WSI) -> Turnip (libvulkan_freedreno.so, KGSL)
+# The frame goes to the X server as a DRI3/Present dma-buf pixmap, NOT through Xlib/XPutImage
+# (that is what the old gallium-xlib Zink does, see build-zink.yml: dri3=disabled).
+# Plus the Pocket Foundry patch: wait for the frame's fence before PresentPixmap (no black flashes).
+#
+# Output: out/zinkdri-<version>.tzst with  lib/  dri/   (like opengl-kgsl-r7.tzst).
+# The app unpacks it to rootfs/opt/zinkdri-*  (core/ZinkDri.java) and puts it FIRST in LD_LIBRARY_PATH,
+# so nothing in rootfs is overwritten. Enable it with the container variable ZINKDRI=1.
+#
+# Default source: lfdevs/mesa-for-android-container (Mesa with KGSL for Adreno 8xx), the commit Pocket Foundry uses.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mesa_repo:
+        description: 'Mesa git repo'
+        required: true
+        default: 'https://github.com/lfdevs/mesa-for-android-container.git'
+      mesa_ref:
+        description: 'Commit SHA or tag (the patch is made for this default SHA)'
+        required: true
+        default: '6f90e92dfdacc4759d8e9ccb328805d0f0b4439b'
+      version:
+        description: 'File name zinkdri-<version>.tzst'
+        required: true
+        default: '1'
+      apply_wsi_patch:
+        description: 'Apply mesa-patches/zinkdri/*.patch (wait for fence before present)'
+        required: true
+        type: boolean
+        default: true
+      runner:
+        description: 'ARM runner (glibc of the runner must be <= glibc of your rootfs)'
+        required: true
+        type: choice
+        default: 'ubuntu-24.04-arm'
+        options:
+          - ubuntu-24.04-arm
+          - ubuntu-22.04-arm
+
+env:
+  PFX: /data/data/@@@@@@@@@@@@@@@@@@@@@@@@@/usr
+
+jobs:
+  build:
+    name: zinkdri
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 120
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git pkg-config bison flex zstd zip patch patchelf \
+            python3 python3-venv python3-pip glslang-tools \
+            libdrm-dev libexpat1-dev zlib1g-dev libzstd-dev \
+            libx11-dev libx11-xcb-dev libxext-dev libxfixes-dev \
+            libxdamage-dev libxxf86vm-dev libxrandr-dev libxshmfence-dev \
+            libxcb1-dev libxcb-glx0-dev libxcb-dri2-0-dev libxcb-dri3-dev \
+            libxcb-present-dev libxcb-randr0-dev libxcb-shm0-dev \
+            libxcb-sync-dev libxcb-xfixes0-dev
+
+      - name: Install meson and python modules (venv)
+        run: |
+          python3 -m venv "$HOME/venv"
+          "$HOME/venv/bin/pip" install --upgrade pip
+          "$HOME/venv/bin/pip" install meson ninja mako pyyaml packaging pycparser ply
+          echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Build newer glslang (only on 22.04)
+        if: contains(inputs.runner, '22.04')
+        run: |
+          sudo apt-get install -y --no-install-recommends cmake
+          git clone --depth 1 --branch 14.3.0 https://github.com/KhronosGroup/glslang.git
+          cd glslang && python3 update_glslang_sources.py
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/opt/glslang -DBUILD_TESTING=OFF
+          ninja -C build -j"$(nproc)" install
+          echo "/opt/glslang/bin" >> "$GITHUB_PATH"
+
+      - name: Fetch Mesa
+        run: |
+          mkdir mesa-src && cd mesa-src
+          git init -q
+          git remote add origin "${{ inputs.mesa_repo }}"
+          git fetch --depth 1 origin "${{ inputs.mesa_ref }}" \
+            || { echo "::error::Cannot fetch '${{ inputs.mesa_ref }}' from ${{ inputs.mesa_repo }}"; exit 1; }
+          git checkout -q FETCH_HEAD
+          echo "Mesa $(cat VERSION)  commit $(git rev-parse --short HEAD)"
+
+      - name: Apply patches
+        if: inputs.apply_wsi_patch
+        working-directory: mesa-src
+        run: |
+          for p in ../mesa-patches/zinkdri/*.patch; do
+            echo "== $p"
+            patch -p1 --dry-run --forward < "$p" \
+              || { echo "::error::$p does not apply to this Mesa. Use the default commit, or port the patch (it only changes need_fence_wait in src/vulkan/wsi/wsi_common_x11.c)."; exit 1; }
+            patch -p1 --forward < "$p"
+          done
+
+      - name: Configure (Zink + Turnip, GLX over DRI, DRI3/Present)
+        working-directory: mesa-src
+        run: |
+          F=$(ls meson.options meson_options.txt 2>/dev/null | head -n1)
+          python3 - "$F" > /tmp/opts.txt <<'PY'
+          import re, sys
+          print("\n".join(re.findall(r"option\(\s*['\"]([^'\"]+)['\"]", open(sys.argv[1]).read())))
+          PY
+          ARGS=()
+          add() {
+            if grep -qx -- "$1" /tmp/opts.txt; then ARGS+=("-D$1=$2")
+            else echo "::notice::option '$1' not in this Mesa, skipped"; fi
+          }
+          add platforms x11
+          add gallium-drivers zink
+          add vulkan-drivers freedreno
+          add freedreno-kmds kgsl
+          add glx dri
+          add glvnd disabled
+          add egl disabled
+          add gbm disabled
+          add gles1 disabled
+          add gles2 disabled
+          add llvm disabled
+          add gallium-va disabled
+          add gallium-rusticl false
+          add teflon false
+          add vulkan-layers ""
+          add tools ""
+          add build-tests false
+          add valgrind disabled
+          add libunwind disabled
+          add lmsensors disabled
+          add xlib-lease disabled
+          add zstd enabled
+          add expat enabled
+          echo "Options: ${ARGS[*]}"
+          meson setup build --buildtype=release -Dstrip=true -Db_ndebug=true \
+            -Dprefix="$PFX" -Dlibdir=lib "${ARGS[@]}" \
+            || { tail -80 build/meson-logs/meson-log.txt; exit 1; }
+
+      - name: Build
+        working-directory: mesa-src
+        run: ninja -C build -j"$(nproc)"
+
+      - name: Install to stage
+        run: |
+          rm -rf stage
+          DESTDIR="$PWD/stage" ninja -C mesa-src/build install
+          ROOT="stage${PFX%/usr}"; LIB="$ROOT/usr/lib"
+          rm -rf "$ROOT/usr/include" "$LIB/pkgconfig"
+          echo "===== installed files ====="
+          find "$ROOT" \( -type f -o -type l \) | sort
+          [ -e "$LIB/libGL.so.1" ] || { echo "::error::libGL.so.1 was not built (glx=dri needs the dri frontend)"; exit 1; }
+          [ -e "$LIB/libvulkan_freedreno.so" ] || { echo "::error::libvulkan_freedreno.so was not built"; exit 1; }
+
+      - name: Bundle X libs the rootfs may lack
+        run: |
+          ROOT="stage${PFX%/usr}"; DST="$ROOT/usr/lib"
+          NEED=$(for f in $(find "$ROOT" -type f -name '*.so*'); do
+                   readelf -d "$f" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'
+                 done | sort -u)
+          echo "NEEDED:"; echo "$NEED"
+          for n in $NEED; do
+            case "$n" in
+              libxcb-*|libX11-xcb*|libxshmfence*|libXxf86vm*|libXdamage*|libXfixes*|libXrandr*|libXrender*|libdrm*|libzstd*|libexpat*) ;;
+              *) continue ;;
+            esac
+            [ -e "$DST/$n" ] && continue
+            src=$(ldconfig -p | awk -v n="$n" '$1==n{print $NF; exit}')
+            if [ -n "$src" ]; then cp -L "$src" "$DST/$n"; echo "bundled $n"
+            else echo "::warning::$n not found on runner"; fi
+          done
+
+      - name: Package
+        run: |
+          ROOT="stage${PFX%/usr}"
+          mkdir -p out
+          rm -rf pkg && mkdir -p pkg/lib pkg/dri
+          # dereference symlinks: the app's extractor does not need to create links
+          cp -aL "$ROOT/usr/lib/." pkg/lib/
+          if [ -d pkg/lib/dri ]; then cp -aL pkg/lib/dri/. pkg/dri/; rm -rf pkg/lib/dri; fi
+          rm -rf pkg/lib/vdpau pkg/lib/gbm
+          tar --owner=0 --group=0 -C pkg -cf - lib dri | zstd -19 -o "out/zinkdri-${{ inputs.version }}.tzst"
+          {
+            echo "### zinkdri-${{ inputs.version }}.tzst  (Mesa $(cat mesa-src/VERSION), patch applied: ${{ inputs.apply_wsi_patch }})"
+            echo '```'
+            echo "highest GLIBC needed (must be <= glibc of your rootfs):"
+            for f in $(find pkg -type f -name '*.so*'); do objdump -T "$f" 2>/dev/null | grep -o 'GLIBC_[0-9.]*'; done | sort -uV | tail -n1
+            echo "libGL.so.1 NEEDED:";             readelf -d pkg/lib/libGL.so.1 | grep NEEDED
+            echo "libvulkan_freedreno.so NEEDED:"; readelf -d pkg/lib/libvulkan_freedreno.so | grep NEEDED
+            echo "kgsl in turnip: $(strings pkg/lib/libvulkan_freedreno.so | grep -c -i 'kgsl-3d0')"
+            for f in $(find pkg -type f -name 'libgallium*.so*'); do echo "$f: kopper strings $(strings "$f" | grep -c -i kopper), zink strings $(strings "$f" | grep -c -i zink)"; done
+            echo '```'
+          } | tee out/deps.txt "$GITHUB_STEP_SUMMARY"
+          find pkg | sort > out/contents.txt
+          ls -lh out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zinkdri
+          path: out/*
+          if-no-files-found: error
