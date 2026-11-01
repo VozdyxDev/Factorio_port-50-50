@@ -1,5 +1,5 @@
 name: Build Factorio
-on: [workflow_dispatch] # Теперь только кнопка в Actions
+on: [workflow_dispatch] # кнопка в Actions
 
 jobs:
   build:
@@ -11,31 +11,62 @@ jobs:
           submodules: recursive
           token: ${{ github.token }}
 
-      - name: Set up JDK 17
+      - name: Set up JDK 17 (+ Gradle cache)
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: gradle
+          cache-dependency-path: |
+            app/**/*.gradle
+            app/gradle/wrapper/gradle-wrapper.properties
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: 'cmake;3.22.1'
 
-      - name: Fix ALL Duplicate Libs
+      - name: ccache for the native libraries
+        run: sudo apt-get install -y --no-install-recommends ccache
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ hashFiles('app/app/src/main/cpp/**') }}
+          restore-keys: ccache-
+
+      # Release signing (optional): secrets FACTORIO_KEYSTORE_BASE64, FACTORIO_STORE_PASSWORD, FACTORIO_KEY_ALIAS,
+      # FACTORIO_KEY_PASSWORD. Without them the release APK is signed with app/app/debug-fixed.keystore as before.
+      - name: Release keystore from secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.FACTORIO_KEYSTORE_BASE64 }}
         run: |
-          # Это правило разрешит дубликаты для ЛЮБЫХ файлов .so в проекте
-          find . -name "build.gradle" -exec sed -i '/android {/a \    packagingOptions { jniLibs { pickFirsts.add("**/*.so") } }' {} +
-          echo "Универсальное исправление дубликатов внесено."
-      - name: Build APK
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "FACTORIO_STORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build APK (release + debug)
+        working-directory: app
+        env:
+          FACTORIO_STORE_PASSWORD: ${{ secrets.FACTORIO_STORE_PASSWORD }}
+          FACTORIO_KEY_ALIAS: ${{ secrets.FACTORIO_KEY_ALIAS }}
+          FACTORIO_KEY_PASSWORD: ${{ secrets.FACTORIO_KEY_PASSWORD }}
+          CCACHE_DIR: ${{ github.workspace }}/.ccache
         run: |
-          GRADLEW_PATH=$(find . -name gradlew | head -n 1)
-          PROJECT_ROOT=$(dirname "$GRADLEW_PATH")
-          cd "$PROJECT_ROOT"
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
-      - name: Upload APK
+          ./gradlew assembleRelease assembleDebug -PfactorioCcache=true --stacktrace
+          ccache -s || true
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Factorio-release
+          path: app/app/build/outputs/apk/release/*.apk
+
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: Factorio-debug
-          path: ./**/build/outputs/apk/debug/*.apk
+          path: app/app/build/outputs/apk/debug/*.apk
