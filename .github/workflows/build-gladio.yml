@@ -1,0 +1,55 @@
+name: Build Gladio client (libGL for the glibc rootfs, aarch64)
+
+# Gladio = OpenGL -> OpenGL ES translator. The client part (this folder: gladio/) is a libGL.so.1 for the glibc rootfs,
+# the server part is the native library "gladiolegacy" inside the app (built together with the app).
+#
+# Output artifact "gladio" contains gladio-<version>.tzst -> copy it to
+#   app/app/src/main/assets/graphics_driver/
+# and set DefaultVersion.GLADIO (core/DefaultVersion.java) to the same <version>.
+# The file name must match, the version is also part of the driver cache id (a new version = files are unpacked again).
+#
+# Build on the OLDEST glibc you can: the rootfs glibc must be >= the runner glibc.
+#   ubuntu-22.04-arm = glibc 2.35, ubuntu-24.04-arm = glibc 2.39
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'ARM runner'
+        required: true
+        type: choice
+        default: 'ubuntu-22.04-arm'
+        options:
+          - ubuntu-22.04-arm
+          - ubuntu-24.04-arm
+      version:
+        description: 'Version for the file name gladio-<version>.tzst'
+        required: true
+        default: '1.4'
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake libx11-dev zstd
+          cmake -S gladio -B gladio/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build gladio/build -j"$(nproc)"
+          ls -la gladio/build/libGL.so*
+          mkdir -p stage/usr/lib out
+          # SONAME is libGL.so.1; the app creates the libGL.so.1 / libGL.so links itself after unpacking
+          cp gladio/build/libGL.so.1.7.0 stage/usr/lib/libGL.so.1.7.0
+          tar --owner=0 --group=0 -C stage -cf - ./usr | zstd -19 -o "out/gladio-${{ inputs.version }}.tzst"
+          echo "Highest glibc symbol version required:"
+          objdump -T stage/usr/lib/libGL.so.1.7.0 | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+          echo "Needed libraries:"
+          readelf -d stage/usr/lib/libGL.so.1.7.0 | grep NEEDED
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gladio
+          path: out/
