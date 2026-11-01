@@ -24,6 +24,7 @@ import com.factorio.xserver.errors.GLXBadFBConfig;
 import com.factorio.xserver.errors.XRequestError;
 
 import java.io.IOException;
+import java.util.concurrent.atomic.AtomicLong;
 
 public class GLXExtension extends Extension {
     public static final byte MAJOR_VERSION = 1;
@@ -46,9 +47,10 @@ public class GLXExtension extends Extension {
         destroyAllGLXContexts(client.fd);
     };
 
-    static {
-        System.loadLibrary("gladiorenderer");
-    }
+    // Turnip / Zink block: the game renders directly (Mesa in the game process), the server only keeps track of the
+    // GLX context ids. The old native placeholder (libgladiorenderer, a second copy of the Gladio server) created a
+    // real EGL context for every GLX context for nothing; plain handles are enough here.
+    private final AtomicLong nextContextHandle = new AtomicLong();
 
     public GLXExtension(XServer xServer, byte majorOpcode) {
         super(xServer, majorOpcode);
@@ -479,12 +481,17 @@ public class GLXExtension extends Extension {
         }
     }
 
-    private native long createGLContext(int clientFd);
+    /** Gladio requests: Gladio runs only in the Vortek block ({@link LegacyGLXExtension}), never here. */
+    private long createGLContext(int clientFd) {
+        return 0;
+    }
 
-    private native void destroyGLContext(long contextPtr);
+    private void destroyGLContext(long contextPtr) {}
 
-    private native long createGLXContext(int contextId, long sharedContextPtr);
+    private long createGLXContext(int contextId, long sharedContextPtr) {
+        return nextContextHandle.incrementAndGet();
+    }
 
-    private native void destroyGLXContext(long contextPtr);
+    private void destroyGLXContext(long contextPtr) {}
 }
 

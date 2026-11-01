@@ -15,11 +15,6 @@
         android:scaleType="fitXY"
         android:contentDescription="@null" />
 
-    <!-- Factorio assembling machine as the progress animation -->
-    <com.factorio.widget.AssemblerLoaderView
-        android:layout_width="150dp"
-        android:layout_height="163dp"
-        android:layout_gravity="center" />
 
     <!-- Kept (hidden) because DownloadProgressDialog.java still updates it -->
     <com.google.android.material.progressindicator.CircularProgressIndicator

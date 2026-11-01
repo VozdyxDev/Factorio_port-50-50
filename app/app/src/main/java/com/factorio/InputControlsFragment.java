@@ -158,9 +158,8 @@ public class InputControlsFragment extends Fragment {
         cbShowControlsWithGamepad.setChecked(preferences.getBoolean("show_controls_with_gamepad", false));
         cbShowControlsWithGamepad.setOnCheckedChangeListener((buttonView, isChecked) -> preferences.edit().putBoolean("show_controls_with_gamepad", isChecked).apply());
 
-        CheckBox cbRelativeMouseMovement = view.findViewById(R.id.CBRelativeMouseMovement);
-        cbRelativeMouseMovement.setChecked(preferences.getBoolean("relative_mouse_movement", false));
-        cbRelativeMouseMovement.setOnCheckedChangeListener((buttonView, isChecked) -> preferences.edit().putBoolean("relative_mouse_movement", isChecked).apply());
+        // Relative mouse movement only worked through Wine's winhandler.exe: hidden for the native game.
+        view.findViewById(R.id.CBRelativeMouseMovement).setVisibility(View.GONE);
 
         view.findViewById(R.id.BTAddProfile).setOnClickListener((v) -> ContentDialog.prompt(context, R.string.profile_name, null, (name) -> {
             currentProfile = manager.createProfile(name);

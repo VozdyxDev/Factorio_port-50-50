@@ -1,5 +1,7 @@
 package com.factorio;
 
+import com.factorio.core.AppExecutors;
+import com.factorio.core.GameArchive;
 import android.app.Activity;
 import android.app.PictureInPictureParams;
 import android.content.Context;
@@ -61,7 +63,6 @@ import com.factorio.widget.MagnifierView;
 import com.factorio.widget.TouchpadView;
 import com.factorio.widget.XServerView;
 import com.factorio.winhandler.GamepadHandler;
-import com.factorio.winhandler.WinHandler;
 import com.factorio.xconnector.UnixSocketConfig;
 import com.factorio.xenvironment.RootFS;
 import com.factorio.xenvironment.XEnvironment;
@@ -100,7 +101,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
     private KeyValueSet audioDriverConfig;
     private final EnvVars envVars = new EnvVars();
     private SharedPreferences preferences;
-    private final WinHandler winHandler = new WinHandler(this);
+    private final GamepadHandler gamepadHandler = new GamepadHandler(this);
     private float globalCursorSpeed = 1.0f;
     private boolean capturePointerOnExternalMouse = true;
     private MagnifierView magnifierView;
@@ -159,8 +160,11 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         // automatic diagnostics (settings -> Diagnostics): this start belongs to one test setup, the container is adjusted here
         diag = com.factorio.core.Diagnostics.beginVariant(this, container);
 
-        if (!checkNativeGame()) return;
+        checkNativeGame(this::startEnvironment);
+    }
 
+    /** Second half of onCreate: runs at once, or after the "game not found" / "update" dialog. */
+    private void startEnvironment() {
         String graphicsDriver = container.getGraphicsDriver();
         audioDriver = container.getAudioDriver();
         String graphicsDriverConfig = container.getGraphicsDriverConfig();
@@ -174,7 +178,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
 
         inputControlsManager = new InputControlsManager(this);
         xServer = new XServer(this, screenInfo);
-        xServer.setWinHandler(winHandler);
+        xServer.setGamepadHandler(gamepadHandler);
         final boolean[] flags = {false};
         xServer.windowManager.addOnWindowModificationListener(new WindowManager.OnWindowModificationListener() {
             @Override
@@ -196,7 +200,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
 
         setupUI();
 
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppExecutors.execute(() -> {
             setupSystemFiles();
             extractGraphicsDriverFiles();
             writeDriverReport();
@@ -217,13 +221,22 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         if (requestCode == MainActivity.EDIT_INPUT_CONTROLS_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
             applyInputControlsScreenResult(data);
         }
+        else if (requestCode == PICK_GAME_ARCHIVE_REQUEST_CODE) {
+            Runnable onReady = onGameArchivePicked;
+            onGameArchivePicked = null;
+            if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null && onReady != null) {
+                GameArchive.choose(this, data.getData());
+                onReady.run();
+            }
+            else finish(); // nothing picked: the game cannot start
+        }
     }
 
 
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus && capturePointerOnExternalMouse) touchpadView.requestPointerCapture();
+        if (hasFocus && capturePointerOnExternalMouse && touchpadView != null) touchpadView.requestPointerCapture();
     }
 
 
@@ -255,8 +268,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             if (inputManager != null) inputManager.unregisterInputDeviceListener(gamepadListener);
             gamepadListener = null;
         }
-        winHandler.gamepadHandler.stopBridge();
-        winHandler.stop();
+        gamepadHandler.stopBridge();
         if (environment != null) environment.stopEnvironmentComponents();
         super.onDestroy();
     }
@@ -471,7 +483,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
     /** Used by the diagnostics: stops the game and the X server without closing the app. */
     public void diagShutdown() {
         try {
-            winHandler.stop();
+            gamepadHandler.stopBridge();
             if (environment != null) environment.stopEnvironmentComponents();
         }
         catch (Exception e) {}
@@ -479,7 +491,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
     }
 
     private void exit() {
-        winHandler.stop();
+        gamepadHandler.stopBridge();
         if (environment != null) environment.stopEnvironmentComponents();
 
         // "Exit" closes the whole app. It must NOT restart the app, otherwise MainActivity starts again
@@ -503,34 +515,81 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
     }
 
 
-    // Native game containers (NATIVE_EXEC set): the game must be already copied into the rootfs
-    // or be present in NATIVE_SRC (phone storage). Otherwise show an error and close.
-    private boolean checkNativeGame() {
-        if (container == null) return true;
-        EnvVars containerVars = new EnvVars(container.getEnvVars());
+    private static final int PICK_GAME_ARCHIVE_REQUEST_CODE = 41;
+    private Runnable onGameArchivePicked;
 
-        String nativeSrc = containerVars.get("NATIVE_SRC");
-        boolean alreadyCopied = false;
-        if (nativeSrc != null && !nativeSrc.isEmpty()) {
-            File dstDir = new File(rootFS.getRootDir(), RootFS.HOME_PATH+"/"+(new File(nativeSrc)).getName());
-            alreadyCopied = (new File(dstDir, ".copy_done")).exists();
+    /**
+     * The game must be installed in the rootfs already, or come from the game folder (NATIVE_SRC, copied once) or
+     * from an archive (factorio*linux-arm64*_X.Y.Z.tar.xz in Download or picked by the user, unpacked once).
+     * Without any of them the user is asked to pick the archive. onReady continues the start.
+     */
+    private void checkNativeGame(Runnable onReady) {
+        if (container == null) {
+            onReady.run();
+            return;
         }
-        if (alreadyCopied) return true;
+        EnvVars containerVars = new EnvVars(container.getEnvVars());
+        String nativeSrc = containerVars.get("NATIVE_SRC");
+        String gameDirName = nativeSrc != null && !nativeSrc.isEmpty() ? new File(nativeSrc).getName() : "factorio";
+        File gameDir = new File(rootFS.getRootDir(), RootFS.HOME_PATH+"/"+gameDirName);
+        File downloadDir = GameArchive.downloadDir(nativeSrc);
+
+        if (GameArchive.hasPending(this)) {
+            android.widget.Toast.makeText(this, R.string.installing_game_archive, android.widget.Toast.LENGTH_LONG).show();
+            onReady.run();
+            return;
+        }
+
+        if (GameArchive.isInstalled(gameDir)) {
+            // a newer archive in Download: offer the update once per version (not during the automatic diagnostics)
+            File newest = diag == null ? GameArchive.findNewest(downloadDir) : null;
+            String installed = GameArchive.installedVersion(gameDir);
+            String found = newest != null ? GameArchive.versionOf(newest.getName()) : null;
+            SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+            if (found != null && installed != null && GameArchive.compareVersions(found, installed) > 0 &&
+                !found.equals(prefs.getString(GameArchive.PREF_DECLINED_VERSION, ""))) {
+                new android.app.AlertDialog.Builder(this)
+                    .setTitle(R.string.game_update_title)
+                    .setMessage(getString(R.string.game_update_message, installed, found, newest.getName()))
+                    .setCancelable(false)
+                    .setPositiveButton(R.string.game_update_install, (dialog, which) -> {
+                        GameArchive.setPending(this, newest.getPath());
+                        onReady.run();
+                    })
+                    .setNegativeButton(R.string.game_update_later, (dialog, which) -> {
+                        prefs.edit().putString(GameArchive.PREF_DECLINED_VERSION, found).apply();
+                        onReady.run();
+                    })
+                    .show();
+                return;
+            }
+            onReady.run();
+            return;
+        }
 
         if (nativeSrc != null && !nativeSrc.isEmpty() && (new File(nativeSrc)).isDirectory()) {
-            android.widget.Toast.makeText(this, "Копирование игры, подождите...", android.widget.Toast.LENGTH_LONG).show();
-            return true;
+            android.widget.Toast.makeText(this, R.string.copying_game, android.widget.Toast.LENGTH_LONG).show();
+            onReady.run();
+            return;
+        }
+
+        if (GameArchive.findNewest(downloadDir) != null) {
+            android.widget.Toast.makeText(this, R.string.installing_game_archive, android.widget.Toast.LENGTH_LONG).show();
+            onReady.run();
+            return;
         }
 
         new android.app.AlertDialog.Builder(this)
-            .setTitle("Игра не найдена")
-            .setMessage("Положите папку с игрой сюда и запустите снова:\n"+(nativeSrc != null ? nativeSrc : "(NATIVE_SRC не задан)"))
+            .setTitle(R.string.game_not_found_title)
+            .setMessage(getString(R.string.game_not_found_message, nativeSrc != null ? nativeSrc : downloadDir+"/factorio", downloadDir.getPath()))
             .setCancelable(false)
-            .setPositiveButton(android.R.string.ok, (dialog, which) -> finish())
+            .setPositiveButton(R.string.choose_game_archive, (dialog, which) -> {
+                onGameArchivePicked = onReady;
+                startActivityForResult(GameArchive.pickIntent(), PICK_GAME_ARCHIVE_REQUEST_CODE);
+            })
+            .setNegativeButton(R.string.exit, (dialog, which) -> finish())
             .show();
-        return false;
     }
-
 
     // The native game (Factorio) cannot use the Windows xinput/dinput path. Instead the Selkies
     // input interposer (LD_PRELOAD) gives the game a virtual "Xbox 360 pad" and we feed it from GamepadHandler.
@@ -570,7 +629,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             envVars.put("SELKIES_REAL_LIBUDEV", "none");
             envVars.put("JS_LOG", "1"); // interposer prints every gamepad open/read to the game log
 
-            winHandler.gamepadHandler.startBridge(socketDir);
+            gamepadHandler.startBridge(socketDir);
         }
         catch (Exception e) {
             Log.e("NativeGamepad", "bridge setup failed: "+e);
@@ -638,7 +697,6 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         environment.startEnvironmentComponents();
         if (diag != null) diag.onEnvironmentStarted(xServerView);
 
-        winHandler.start();
         envVars.clear();
         graphicsDriver = null;
         graphicsDriverConfig = null;
@@ -669,7 +727,6 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
 
         inputControlsView = new InputControlsView(this);
         inputControlsView.setShowTouchscreenControls(preferences.getBoolean("show_touchscreen_controls", true));
-        xServer.setRelativeMouseMovement(preferences.getBoolean("relative_mouse_movement", false));
         inputControlsView.setTouchpadView(touchpadView);
         inputControlsView.setXServer(xServer);
         inputControlsView.setVisibility(View.GONE);
@@ -717,7 +774,6 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         if (profile != null) showInputControls(profile);
         else hideInputControls();
 
-        xServer.setRelativeMouseMovement(preferences.getBoolean("relative_mouse_movement", false));
         showControlsWithGamepad = preferences.getBoolean("show_controls_with_gamepad", false);
         inputControlsView.setShowTouchscreenControls(preferences.getBoolean("show_touchscreen_controls", true));
         updateControlsForGamepad(-1);
@@ -974,17 +1030,19 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
 
     @Override
     public boolean dispatchGenericMotionEvent(MotionEvent event) {
-        return !winHandler.onGenericMotionEvent(event) && !touchpadView.onExternalMouseEvent(event) && super.dispatchGenericMotionEvent(event);
+        if (touchpadView == null) return super.dispatchGenericMotionEvent(event); // start waits for the "game not found" dialog
+        return !gamepadHandler.onGenericMotionEvent(event) && !touchpadView.onExternalMouseEvent(event) && super.dispatchGenericMotionEvent(event);
     }
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (xServer == null || inputControlsView == null) return super.dispatchKeyEvent(event);
         // Native game with the gamepad bridge: pad buttons go to the game first, not to cursor/keyboard bindings
-        if (winHandler.gamepadHandler.isBridgeActive() && event.getKeyCode() != KeyEvent.KEYCODE_BACK && ExternalController.isGameController(event.getDevice())) {
-            winHandler.onKeyEvent(event);
+        if (gamepadHandler.isBridgeActive() && event.getKeyCode() != KeyEvent.KEYCODE_BACK && ExternalController.isGameController(event.getDevice())) {
+            gamepadHandler.onKeyEvent(event);
             return true; // never let pad buttons navigate the Android UI while a native game runs
         }
-        return (!inputControlsView.onKeyEvent(event) && !winHandler.onKeyEvent(event) && xServer.keyboard.onKeyEvent(event)) ||
+        return (!inputControlsView.onKeyEvent(event) && !gamepadHandler.onKeyEvent(event) && xServer.keyboard.onKeyEvent(event)) ||
                (!ExternalController.isGameController(event.getDevice()) && super.dispatchKeyEvent(event));
     }
 
@@ -996,8 +1054,8 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         return xServer;
     }
 
-    public WinHandler getWinHandler() {
-        return winHandler;
+    public GamepadHandler getGamepadHandler() {
+        return gamepadHandler;
     }
 
     public XServerView getXServerView() {

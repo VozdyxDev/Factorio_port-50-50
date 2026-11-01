@@ -30,6 +30,7 @@ import com.google.android.material.navigation.NavigationView;
 import com.factorio.container.Container;
 import com.factorio.container.ContainerManager;
 import com.factorio.core.AppUtils;
+import com.factorio.core.GameArchive;
 import com.factorio.core.Callback;
 import com.factorio.core.LocaleHelper;
 import com.factorio.core.PackagePath;
@@ -43,6 +44,7 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     public static final byte OPEN_FILE_REQUEST_CODE = 2;
     public static final byte EDIT_INPUT_CONTROLS_REQUEST_CODE = 3;
     public static final byte OPEN_DIRECTORY_REQUEST_CODE = 4;
+    public static final byte PICK_GAME_ARCHIVE_REQUEST_CODE = 5;
     private DrawerLayout drawerLayout;
     public final PreloaderDialog preloaderDialog = new PreloaderDialog(this);
     private boolean editInputControls = false;
@@ -146,6 +148,18 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
     @Override
     public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == PICK_GAME_ARCHIVE_REQUEST_CODE) {
+            if (resultCode == Activity.RESULT_OK && data != null && data.getData() != null) {
+                GameArchive.Source source = GameArchive.fromUri(this, data.getData());
+                if (!GameArchive.isArchiveName(source.name)) {
+                    // not the usual name: still allowed (the content is checked while unpacking), just say so
+                    AppUtils.showToast(this, getString(R.string.game_archive_unusual_name, source.name));
+                }
+                GameArchive.choose(this, data.getData());
+                AppUtils.showToast(this, getString(R.string.game_archive_chosen, source.name));
+            }
+            return;
+        }
         if (requestCode == MainActivity.OPEN_FILE_REQUEST_CODE && resultCode == Activity.RESULT_OK) {
             if (openFileCallback != null) {
                 openFileCallback.call(data.getData());
@@ -223,6 +237,9 @@ public class MainActivity extends AppCompatActivity implements NavigationView.On
             case R.id.menu_item_files:
                 showFragment(new FileManagerFragment());
                 break;
+            case R.id.menu_item_install_archive:
+                startActivityForResult(GameArchive.pickIntent(), PICK_GAME_ARCHIVE_REQUEST_CODE);
+                return false; // not a screen: keep the current item checked
             case R.id.menu_item_settings:
                 showFragment(new SettingsFragment());
                 break;

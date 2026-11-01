@@ -1,7 +1,10 @@
 #define HEADER_SIZE 8
 #define DEVICE_NAME "Vortek (%s)"
 #define ENABLE_VALIDATION_LAYER 0 // FIXME set to 0 and remove libVkLayer from jniLibs
-#define DEBUG_MODE 0 // FIXME set to 0
+// 0 = off, 1 = log every request. Set from CMake: -DVORTEK_DEBUG_MODE=1 (see vortekrenderer/CMakeLists.txt)
+#ifndef DEBUG_MODE
+#define DEBUG_MODE 0
+#endif
 #define MEMORY_POOL_MAX_SIZE 65536
 #define SERVER_RING_BUFFER_SIZE 4194304
 #define CLIENT_RING_BUFFER_SIZE 262144

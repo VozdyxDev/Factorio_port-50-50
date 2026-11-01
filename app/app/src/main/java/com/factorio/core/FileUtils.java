@@ -316,7 +316,7 @@ public abstract class FileUtils {
     }
 
     public static void getSizeAsync(File file, Callback<Long> callback) {
-        Executors.newSingleThreadExecutor().execute(() -> getSize(file, callback));
+        AppExecutors.execute(() -> getSize(file, callback));
     }
 
     private static void getSize(File file, Callback<Long> callback) {

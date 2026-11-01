@@ -2,9 +2,7 @@ package com.factorio.xserver;
 
 import androidx.collection.ArrayMap;
 
-import com.factorio.winhandler.WinHandler;
 
-import java.util.ArrayList;
 import java.util.Map;
 
 public abstract class DesktopHelper {
@@ -51,21 +49,13 @@ public abstract class DesktopHelper {
     }
 
     private static void setFocusedWindow(XServer xServer, Window window) {
-        WinHandler winHandler = xServer.getWinHandler();
+        // (Wine's winhandler.exe used to raise the window here; a native game needs only the X focus.)
         if (window.isApplicationWindow()) {
             boolean parentIsRoot = window.getParent() == xServer.windowManager.rootWindow;
             xServer.windowManager.setFocus(window, parentIsRoot ? WindowManager.FocusRevertTo.POINTER_ROOT : WindowManager.FocusRevertTo.PARENT);
-
-            if (window.isSurface()) {
-                ArrayList<Window> dialogWindows = xServer.windowManager.findDialogWindows(window.id);
-                if (!dialogWindows.isEmpty()) {
-                    for (Window dialogWindow : dialogWindows) winHandler.bringToFront(dialogWindow.getClassName(), dialogWindow.getHandle());
-                }
-                else winHandler.bringToFront(window.getClassName(), window.getHandle());
-            }
         }
         else if (window.isDialogBox()) {
-            winHandler.bringToFront(window.getClassName(), window.getHandle());
+            // nothing to do without winhandler.exe
         }
         else if (window.getParent() == xServer.windowManager.rootWindow && window.isRenderable() && !window.getClassName().isEmpty()) {
             // Fallback: a top-level window with a class that does not satisfy isApplicationWindow() (no WM_NAME / window group yet)

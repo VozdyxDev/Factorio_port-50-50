@@ -14,8 +14,6 @@ import com.factorio.core.AppUtils;
 import com.factorio.math.Mathf;
 import com.factorio.math.XForm;
 import com.factorio.renderer.ViewTransformation;
-import com.factorio.winhandler.MouseEventFlags;
-import com.factorio.winhandler.WinHandler;
 import com.factorio.xserver.Pointer;
 import com.factorio.xserver.XServer;
 
@@ -255,11 +253,7 @@ public class TouchpadView extends View implements View.OnCapturedPointerListener
                 int dx = finger1.deltaX();
                 int dy = finger1.deltaY();
 
-                WinHandler winHandler = xServer.getWinHandler();
-                if (xServer.isRelativeMouseMovement()) {
-                    winHandler.mouseEvent(MouseEventFlags.MOVE, dx, dy, 0);
-                }
-                else xServer.injectPointerMoveDelta(dx, dy);
+                xServer.injectPointerMoveDelta(dx, dy);
             }
         }
     }

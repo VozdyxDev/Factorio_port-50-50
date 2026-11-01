@@ -2,7 +2,8 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project(TexCompress C)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2")
+# CPU heavy (palette search, k-means, dithering): full optimisation
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
 
 add_library(texcompress SHARED
             src/texcompress.c

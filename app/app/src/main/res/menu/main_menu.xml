@@ -5,6 +5,7 @@
         <item android:icon="@drawable/icon_run" android:id="@+id/menu_item_play" android:title="@string/start_game" />
         <item android:icon="@drawable/icon_input_controls" android:id="@+id/menu_item_input_controls" android:title="@string/input_controls" />
         <item android:icon="@drawable/icon_files" android:id="@+id/menu_item_files" android:title="@string/files" />
+        <item android:icon="@drawable/icon_install" android:id="@+id/menu_item_install_archive" android:title="@string/install_game_archive" />
     </group>
     <group android:checkableBehavior="single">
         <item android:icon="@drawable/icon_settings" android:id="@+id/menu_item_settings" android:title="@string/settings" />

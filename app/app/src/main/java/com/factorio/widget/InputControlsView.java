@@ -25,7 +25,7 @@ import com.factorio.inputcontrols.ExternalController;
 import com.factorio.inputcontrols.ExternalControllerBinding;
 import com.factorio.inputcontrols.GamepadState;
 import com.factorio.math.Mathf;
-import com.factorio.winhandler.WinHandler;
+import com.factorio.winhandler.GamepadHandler;
 import com.factorio.xserver.Pointer;
 import com.factorio.xserver.XServer;
 
@@ -485,7 +485,7 @@ public class InputControlsView extends View {
 
     public void handleInputEvent(Binding binding, boolean isActionDown, float offset) {
         if (binding.isGamepad()) {
-            WinHandler winHandler = xServer != null ? xServer.getWinHandler() : null;
+            GamepadHandler gamepadHandler = xServer != null ? xServer.getGamepadHandler() : null;
             GamepadState state = profile.getGamepadState();
 
             int buttonIdx = binding.ordinal() - Binding.GAMEPAD_BUTTON_A.ordinal();
@@ -509,7 +509,7 @@ public class InputControlsView extends View {
                 state.dpad[binding.ordinal() - Binding.GAMEPAD_DPAD_UP.ordinal()] = isActionDown;
             }
 
-            if (winHandler != null) winHandler.gamepadHandler.sendGamepadState(profile);
+            if (gamepadHandler != null) gamepadHandler.sendGamepadState(profile);
         }
         else {
             if (binding == Binding.MOUSE_MOVE_LEFT || binding == Binding.MOUSE_MOVE_RIGHT) {

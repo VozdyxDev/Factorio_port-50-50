@@ -1,3 +1,40 @@
+# r39 — оптимизация и установка игры из архива
+С этой версии нумерация одна: номер = `versionCode` (`appVersion` в `app/app/build.gradle`). Записи ниже («Порт vNN», «vNN»)
+велись в разных чатах и пронумерованы по-разному.
+
+## Установка игры из архива
+- Новое: `core/GameArchive.java`. Архив `factorio…linux-arm64…_X.Y.Z.tar.xz` (версия из имени, любая) распаковывается прямо в
+  контейнер; папка `Download/factorio` по-прежнему копируется, если она есть. Подробно — README, «Где брать игру».
+- Пункт главного меню «Установить игру из архива», кнопка «Выбрать архив» в окне «Игра не найдена», предложение обновиться,
+  если в Download появился архив новее установленного.
+- `GameCopier` разделён: обработка одного файла (`GameCopier.Job`) общая для папки и архива, отчёт тот же.
+- Распаковка: защита от путей с `..`, атомарная замена через `factorio.part`, проверка `bin/arm64/factorio` и свободного места.
+
+## Производительность
+- Кольцевые буферы Gladio / Vortek (`legacy_common/src/ring_buffer.c`, клиент `gladio/src/ring_buffer.c`): ожидание через
+  futex вместо `usleep(100)` в цикле. Сторона, которая умеет будить соседа, ставит флаг `RING_STATUS_*_WAKES`; тогда сосед
+  спит до пробуждения (без расхода CPU в простое). Старый клиент без флага (готовый клиент Vortek) — прежний опрос 100 мкс,
+  поведение не меняется. Для выигрыша в Gladio пересобрать клиент: workflow *Build Gladio client*, версия 1.4, положить
+  `gladio-1.4.tzst` в `assets/graphics_driver/` и поставить `DefaultVersion.GLADIO = "1.4"`.
+- Release-сборка без режима отладки, ThinLTO для Vortek / Gladio, `-O3` для сжатия текстур.
+- Общий пул потоков `core/AppExecutors` вместо `newSingleThreadExecutor()` без остановки (потоки копились).
+
+## Удалено
+- Анимация сборочного автомата на экранах загрузки (класс и картинки).
+- `WinHandler` (UDP-сервер для winhandler.exe из Wine) и связанные классы; геймпады работают через `GamepadHandler`
+  (мост interposer). Относительное движение мыши (только через Wine) отключено, галочка скрыта.
+- Нативная библиотека `gladiorenderer` — вторая, отстающая копия сервера Gladio. Для Turnip/Zink она только создавала
+  лишние EGL-контексты; `GLXExtension` теперь хранит простые номера контекстов. Gladio работает через `gladiolegacy`.
+
+## Сборка и CI
+- `build.yml`: кэш Gradle и ccache, сборка release + debug, ключ из секретов (без них — прежний ключ).
+- Вместо `pickFirsts "**/*.so"` (прятал любые конфликты) — только `libc++_shared.so`.
+- `commons-compress` 1.20 → 1.26.2 (исправления уязвимостей), `xz` 1.7 → 1.9.
+- Патчи Zink вынесены из YAML в `zink-patches/*.py`.
+- `DEBUG_MODE` серверов задаётся из CMake; окончания строк LF (`.gitattributes`).
+
+**Не проверено сборкой и на устройстве** — проверять CI и телефоном.
+
 # Порт v36 — Gladio: RGTC в запросах размера и обратном чтении
 В v35 `0x502` исчез, но игра падала на своей проверке `VideoBitmapOpenGL.cpp:267: data.size() == size + offset`. Для RGTC-текстур Gladio отвечал `GL_TEXTURE_COMPRESSED = 0` и `GL_TEXTURE_COMPRESSED_IMAGE_SIZE = w*h*4`, а `glGetCompressedTexImage` не умел RGTC.
 - `isCompressedFormatForQuery()` (DXT + RGTC) для `GL_TEXTURE_COMPRESSED` и `..._IMAGE_SIZE`; `isCompressedFormat()` не менялся, потому что от него зависит путь «BGRA8 для хранилища».

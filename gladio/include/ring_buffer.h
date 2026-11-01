@@ -13,6 +13,9 @@ typedef struct RingBuffer {
     void* buffer;
     void* sharedData;
     uint32_t bufferSize;
+    // local (not shared): this side has already announced that it wakes the peer (see RING_STATUS_*_WAKES)
+    uint8_t announcedReader;
+    uint8_t announcedWriter;
     // --- client-side command batching (see gl_send in gladio.h) ---
     uint8_t* batch;             // pending, not yet published requests
     uint32_t batchSize;
@@ -23,6 +26,15 @@ typedef struct RingBuffer {
 #define RING_STATUS_IDLE (1u<<0)
 #define RING_STATUS_EXIT (1u<<1)
 #define RING_STATUS_WAIT (1u<<2)
+// Futex based waiting (instead of usleep polling). The bits live in the shared status word:
+//   *_WAITING - this side sleeps in FUTEX_WAIT on tail (reader) / head (writer) and wants a FUTEX_WAKE;
+//   *_WAKES   - this side wakes the peer after every head / tail update, so the peer may sleep long.
+// A peer that does not know the bits (e.g. the prebuilt Vortek client) never sets *_WAKES: the waiting side
+// then keeps the old short 100 us sleeps, the behaviour is the same as before.
+#define RING_STATUS_READER_WAITING (1u<<8)
+#define RING_STATUS_WRITER_WAITING (1u<<9)
+#define RING_STATUS_WRITER_WAKES   (1u<<10)
+#define RING_STATUS_READER_WAKES   (1u<<11)
 
 extern void RingBuffer_setHead(RingBuffer* ring, uint32_t head);
 extern uint32_t RingBuffer_getHead(RingBuffer* ring);

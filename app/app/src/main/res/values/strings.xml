@@ -249,4 +249,18 @@
     <string name="diagnostics_confirm">The game will be started automatically %1$d times (about %2$d min in total) with different graphics settings and closed again. Do not touch the screen and keep the device charged. Your own settings are restored at the end.</string>
     <string name="diagnostics_done_title">Diagnostics finished</string>
     <string name="diagnostics_done_message">Your settings were restored. Send this file:\n\n%1$s</string>
+    <!-- game archive install -->
+    <string name="install_game_archive">Install the game from an archive</string>
+    <string name="installing_game_archive">Installing the game from the archive…</string>
+    <string name="game_archive_installed">Game %1$s installed</string>
+    <string name="game_archive_failed">Game archive was not installed: %1$s</string>
+    <string name="game_archive_chosen">%1$s will be installed on the next game start</string>
+    <string name="game_archive_unusual_name">Unusual file name: %1$s. A Linux ARM64 archive (factorio…linux-arm64…tar.xz) is needed</string>
+    <string name="game_not_found_title">Game not found</string>
+    <string name="game_not_found_message">Put the game folder here: %1$s\n\nor the game archive (for example factorio-space-age_linux-arm64_2.1.24.tar.xz) into %2$s, or choose the archive now.</string>
+    <string name="choose_game_archive">Choose archive</string>
+    <string name="game_update_title">Game update</string>
+    <string name="game_update_message">Installed: %1$s\nFound: %2$s (%3$s)\n\nInstall the new version? Saves and mods are kept.</string>
+    <string name="game_update_install">Install</string>
+    <string name="game_update_later">Not now</string>
 </resources>

@@ -1,5 +1,6 @@
 package com.factorio.container;
 
+import com.factorio.core.AppExecutors;
 import android.content.Context;
 import android.os.Handler;
 
@@ -69,7 +70,7 @@ public class ContainerManager {
 
     public void createContainerAsync(final JSONObject data, Callback<Container> callback) {
         final Handler handler = new Handler();
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppExecutors.execute(() -> {
             final Container container = createContainer(data);
             handler.post(() -> callback.call(container));
         });

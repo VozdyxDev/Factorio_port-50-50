@@ -34,7 +34,7 @@ public abstract class HttpUtils {
     }
 
     public static void download(final String url, final Callback<String> onDownloadComplete) {
-        Executors.newSingleThreadExecutor().execute(() -> downloadAsync(url, onDownloadComplete));
+        AppExecutors.execute(() -> downloadAsync(url, onDownloadComplete));
     }
 
     private static void downloadAsync(String url, File destination, AtomicBoolean interruptRef, Callback<Integer> onPublishProgress, Callback<Boolean> onDownloadComplete) {
@@ -75,7 +75,7 @@ public abstract class HttpUtils {
         final DownloadProgressDialog dialog = new DownloadProgressDialog(activity);
         final AtomicBoolean interruptRef = new AtomicBoolean();
         dialog.show(() -> interruptRef.set(true));
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppExecutors.execute(() -> {
             downloadAsync(url, destination, interruptRef, (progress) -> {
                 activity.runOnUiThread(() -> {
                     dialog.setProgress(progress);

@@ -14,6 +14,7 @@ import com.factorio.core.Callback;
 import com.factorio.core.DownloadProgressDialog;
 import com.factorio.core.EnvVars;
 import com.factorio.core.FileUtils;
+import com.factorio.core.GameArchive;
 import com.factorio.core.GameCompression;
 import com.factorio.core.GameCopier;
 import com.factorio.core.LocaleHelper;
@@ -98,36 +99,45 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         if (nativeExec == null || nativeExec.isEmpty()) nativeExec = Container.DEFAULT_NATIVE_EXEC;
         String command;
         String nativeSrc = envVars.get("NATIVE_SRC");
+        final android.app.Activity activity = (android.app.Activity)environment.getContext();
+        final int compression = PreferenceManager.getDefaultSharedPreferences(activity).getInt(GameCompression.PREF_KEY, GameCompression.ORIGINAL);
+        String gameDirName = nativeSrc != null && !nativeSrc.isEmpty() ? new File(nativeSrc).getName() : "factorio";
+        File gameDir = new File(rootDir, RootFS.HOME_PATH+"/"+gameDirName);
+
+        // 1) an archive the user picked (or, if the game is not installed and there is no folder, the newest
+        //    factorio*linux-arm64*_X.Y.Z.tar.xz in Download): unpacked straight into the rootfs
+        GameArchive.Source archive = GameArchive.sourceToInstall(activity, gameDir, nativeSrc);
+        if (archive != null) {
+            final DownloadProgressDialog installDialog = new DownloadProgressDialog(activity);
+            activity.runOnUiThread(() -> installDialog.show(R.string.installing_game_archive));
+            GameCopier.Result installResult = GameArchive.install(activity, archive, gameDir, compression, (percent) -> activity.runOnUiThread(() -> installDialog.setProgress(percent)));
+            installDialog.closeOnUiThread();
+            writeCopyReport(activity, gameDir, installResult);
+            final String message = installResult.ok
+                ? activity.getString(R.string.game_archive_installed, archive.version != null ? archive.version : archive.name)
+                : activity.getString(R.string.game_archive_failed, installResult.error);
+            activity.runOnUiThread(() -> AppUtils.showToast(activity, message));
+            if (installResult.ok && compression != GameCompression.ORIGINAL) showCompressionSummary(activity, installResult);
+        }
+
+        // 2) the game folder (NATIVE_SRC, e.g. Download/factorio) is copied once, as before
         if (nativeSrc != null && !nativeSrc.isEmpty()) {
             File srcDir = new File(nativeSrc);
-            File dstDir = new File(rootDir, RootFS.HOME_PATH+"/"+srcDir.getName());
-            File doneMark = new File(dstDir, ".copy_done");
+            File dstDir = gameDir;
+            File doneMark = new File(dstDir, GameArchive.DONE_MARK);
             if (srcDir.isDirectory() && !doneMark.exists()) {
                 // copy was never finished (or first run): start clean, then mark as done
                 FileUtils.delete(dstDir);
 
                 // One-time copy with a progress screen; the texture compression level was chosen on the first start.
-                final android.app.Activity activity = (android.app.Activity)environment.getContext();
-                int compression = PreferenceManager.getDefaultSharedPreferences(activity).getInt(GameCompression.PREF_KEY, GameCompression.ORIGINAL);
                 final DownloadProgressDialog copyDialog = new DownloadProgressDialog(activity);
                 activity.runOnUiThread(() -> copyDialog.show(R.string.copying_game));
                 GameCopier.Result copyResult = GameCopier.copy(srcDir, dstDir, compression, (percent) -> activity.runOnUiThread(() -> copyDialog.setProgress(percent)));
                 boolean copied = copyResult.ok;
                 copyDialog.closeOnUiThread();
 
-                // report with the reasons why some textures were kept as they are, next to the other logs
-                File reportDir = LogView.getLogFile().getParentFile();
-                if (reportDir != null && reportDir.isDirectory() && reportDir.canWrite()) {
-                    FileUtils.writeString(new File(reportDir, "compression-report.txt"), copyResult.report);
-                }
-                // second copy next to the game folder: visible in the file manager (root "Game")
-                File homeDir = dstDir.getParentFile();
-                if (homeDir != null && homeDir.isDirectory()) FileUtils.writeString(new File(homeDir, "compression-report.txt"), copyResult.report);
-                if (compression != GameCompression.ORIGINAL) {
-                    final String summary = activity.getString(R.string.compression_done, copyResult.pngShrunk, copyResult.pngTotal,
-                        (int)(copyResult.inBytes >> 20), (int)(copyResult.outBytes >> 20));
-                    activity.runOnUiThread(() -> AppUtils.showToast(activity, summary));
-                }
+                writeCopyReport(activity, dstDir, copyResult);
+                if (compression != GameCompression.ORIGINAL) showCompressionSummary(activity, copyResult);
                 if (copied) {
                     try { doneMark.createNewFile(); } catch (Exception e) {}
                 }
@@ -245,36 +255,6 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             envVars.remove("ZINK_DEBUG");
             envVars.remove("MESA_GL_VERSION_OVERRIDE");
         }
-
-        // ZINKDRI=1 (container variable): "Pocket Foundry" way of drawing, for comparison with the xlib Zink of block 1.
-        //   libGL (glx=dri) -> Zink (kopper) -> Turnip, frames presented through DRI3/Present instead of XPutImage.
-        //   ZINKDRI_FILE=/storage/emulated/0/Download/zinkdri-1.tzst  use this package instead of the APK asset
-        //   ZINKDRI_SW=1                                              Vulkan WSI software path (shm), to tell WSI problems from driver problems
-        // Only block 1 (Turnip + Zink) is affected; without ZINKDRI=1 nothing here runs.
-        String[] zinkDriIds = GraphicsDrivers.parseIdentifiers(selectedContainer.getGraphicsDriver());
-        boolean zinkDri = "1".equals(envVars.get("ZINKDRI")) && !nativeGL
-                && GraphicsDrivers.TURNIP.equals(zinkDriIds[0]) && GraphicsDrivers.ZINK.equals(zinkDriIds[1]);
-        if (zinkDri) {
-            File zinkDriDir;
-            try {
-                zinkDriDir = com.factorio.core.ZinkDri.prepare(environment.getContext(), rootDir, envVars.get("ZINKDRI_FILE"));
-            } catch (java.io.IOException e) {
-                android.util.Log.e("Factorio", "Cannot prepare ZinkDri", e);
-                return -1;
-            }
-            libPath = zinkDriDir+"/lib:"+libPath;
-            envVars.put("LIBGL_DRIVERS_PATH", zinkDriDir+"/dri");
-            envVars.put("VK_DRIVER_FILES", zinkDriDir+"/vulkan/icd.json");
-            envVars.put("VK_ICD_FILENAMES", zinkDriDir+"/vulkan/icd.json");   // older loaders
-            envVars.put("MESA_LOADER_DRIVER_OVERRIDE", "zink");
-            envVars.put("__GLX_VENDOR_LIBRARY_NAME", "mesa");
-            envVars.remove("GALLIUM_DRIVER");            // xlib-Zink variable, not for the DRI path
-            envVars.remove("ZINK_CONTEXT_THREADED");     // Pocket Foundry runs without it
-            envVars.remove("MESA_GL_VERSION_OVERRIDE");
-            envVars.remove("MESA_VK_WSI_USE_HWBUF");     // option of the custom Turnip build, not of this Mesa
-            if ("1".equals(envVars.get("ZINKDRI_SW"))) envVars.put("MESA_VK_WSI_DEBUG", "sw");
-            android.util.Log.i("Factorio", "ZINKDRI on: " + zinkDriDir);
-        }
         envVars.put("LD_LIBRARY_PATH", libPath);
 
         // Factorio does not know that it runs through the glibc loader:
@@ -380,6 +360,22 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             return;
         }
         for (File child : children) collectSignature(child, acc);
+    }
+
+    /** compression-report.txt next to the logs and next to the game folder (visible in the file manager, root "Game"). */
+    private static void writeCopyReport(android.app.Activity activity, File gameDir, GameCopier.Result result) {
+        File reportDir = LogView.getLogFile().getParentFile();
+        if (reportDir != null && reportDir.isDirectory() && reportDir.canWrite()) {
+            FileUtils.writeString(new File(reportDir, "compression-report.txt"), result.report);
+        }
+        File homeDir = gameDir.getParentFile();
+        if (homeDir != null && homeDir.isDirectory()) FileUtils.writeString(new File(homeDir, "compression-report.txt"), result.report);
+    }
+
+    private static void showCompressionSummary(android.app.Activity activity, GameCopier.Result result) {
+        final String summary = activity.getString(R.string.compression_done, result.pngShrunk, result.pngTotal,
+            (int)(result.inBytes >> 20), (int)(result.outBytes >> 20));
+        activity.runOnUiThread(() -> AppUtils.showToast(activity, summary));
     }
 
     /** Explains why the game executable is not inside the rootfs (see NATIVE_SRC / NATIVE_EXEC in the container variables). */

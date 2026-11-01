@@ -2,7 +2,12 @@ cmake_minimum_required(VERSION 3.22.1)
 
 project(GladioLegacy)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -Wno-unused-function -Wimplicit-function-declaration -Werror=incompatible-pointer-types")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O2 -flto=thin -Wno-unused-function -Wimplicit-function-declaration -Werror=incompatible-pointer-types")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -flto=thin")
+
+# Debug output of the Gladio server: 0 = off, otherwise a mask of DEBUG_MODE_* from include/gladio.h
+set(GLADIO_DEBUG_MODE 0 CACHE STRING "Gladio server debug mask (0 = off)")
+add_compile_definitions(DEBUG_MODE=${GLADIO_DEBUG_MODE})
 
 include_directories(include)
 include_directories(../legacy_common/include)

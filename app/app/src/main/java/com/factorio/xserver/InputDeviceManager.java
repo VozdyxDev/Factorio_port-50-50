@@ -2,8 +2,6 @@ package com.factorio.xserver;
 
 import com.factorio.core.Bitmask;
 import com.factorio.renderer.FullscreenTransformation;
-import com.factorio.winhandler.MouseEventFlags;
-import com.factorio.winhandler.WinHandler;
 import com.factorio.xserver.events.ButtonPress;
 import com.factorio.xserver.events.ButtonRelease;
 import com.factorio.xserver.events.EnterNotify;
@@ -16,7 +14,6 @@ import com.factorio.xserver.events.MotionNotify;
 import com.factorio.xserver.events.PointerWindowEvent;
 
 public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyboard.OnKeyboardListener, WindowManager.OnWindowModificationListener, XResourceManager.OnResourceLifecycleListener {
-    private static final byte MOUSE_WHEEL_DELTA = 120;
     private Window pointWindow;
     private final XServer xServer;
 
@@ -189,12 +186,7 @@ public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyb
 
     @Override
     public void onPointerButtonPress(Pointer.Button button) {
-        if (xServer.isRelativeMouseMovement()) {
-            WinHandler winHandler = xServer.getWinHandler();
-            int wheelDelta = button == Pointer.Button.BUTTON_SCROLL_UP ? MOUSE_WHEEL_DELTA : (button == Pointer.Button.BUTTON_SCROLL_DOWN ? -MOUSE_WHEEL_DELTA : 0);
-            winHandler.mouseEvent(MouseEventFlags.getFlagFor(button, true), 0, 0, wheelDelta);
-        }
-        else {
+        {
             Window grabWindow = xServer.grabManager.getWindow();
             if (grabWindow == null) {
                 grabWindow = pointWindow.getAncestorWithEventId(Event.BUTTON_PRESS);
@@ -234,11 +226,7 @@ public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyb
 
     @Override
     public void onPointerButtonRelease(Pointer.Button button) {
-        if (xServer.isRelativeMouseMovement()) {
-            WinHandler winHandler = xServer.getWinHandler();
-            winHandler.mouseEvent(MouseEventFlags.getFlagFor(button, false), 0, 0, 0);
-        }
-        else {
+        {
             Bitmask eventMask = createPointerEventMask();
             Window grabWindow = xServer.grabManager.getWindow();
             Window window = grabWindow == null || xServer.grabManager.isOwnerEvents() ? pointWindow.getAncestorWithEventMask(eventMask) : null;

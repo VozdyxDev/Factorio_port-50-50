@@ -1,5 +1,6 @@
 package com.factorio.xenvironment;
 
+import com.factorio.core.AppExecutors;
 import android.content.Context;
 import android.content.SharedPreferences;
 import androidx.preference.PreferenceManager;
@@ -87,7 +88,7 @@ public abstract class RootFSInstaller {
             });
         }
 
-        Executors.newSingleThreadExecutor().execute(() -> {
+        AppExecutors.execute(() -> {
             clearRootDir(rootDir);
             final long contentLength = TarCompressorUtils.getContentLength(TarCompressorUtils.Type.ZSTD, activity, FILENAME, rootDir);
             AtomicLong totalSizeRef = new AtomicLong();

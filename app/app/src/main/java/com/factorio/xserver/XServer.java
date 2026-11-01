@@ -4,7 +4,7 @@ import com.factorio.XServerDisplayActivity;
 import com.factorio.contentdialog.DebugDialog;
 import com.factorio.core.CursorLocker;
 import com.factorio.renderer.GLRenderer;
-import com.factorio.winhandler.WinHandler;
+import com.factorio.winhandler.GamepadHandler;
 import com.factorio.xserver.extensions.BigReqExtension;
 import com.factorio.xserver.extensions.DRI3Extension;
 import com.factorio.xserver.extensions.Extension;
@@ -42,9 +42,8 @@ public class XServer {
     public final CursorLocker cursorLocker;
     private SHMSegmentManager shmSegmentManager;
     private GLRenderer renderer;
-    private WinHandler winHandler;
+    private GamepadHandler gamepadHandler;
     private final EnumMap<Lockable, ReentrantLock> locks = new EnumMap<>(Lockable.class);
-    private boolean relativeMouseMovement = false;
     private volatile boolean wireTraceEnabled;
 
     public void setWireTraceEnabled(boolean enabled) { wireTraceEnabled = enabled; }
@@ -69,13 +68,9 @@ public class XServer {
         extensions = setupExtensions();
     }
 
+    /** Relative mouse movement needed Wine's winhandler.exe; a native game always gets absolute X11 pointer events. */
     public boolean isRelativeMouseMovement() {
-        return relativeMouseMovement;
-    }
-
-    public void setRelativeMouseMovement(boolean relativeMouseMovement) {
-        cursorLocker.setEnabled(!relativeMouseMovement);
-        this.relativeMouseMovement = relativeMouseMovement;
+        return false;
     }
 
     public GLRenderer getRenderer() {
@@ -86,12 +81,12 @@ public class XServer {
         this.renderer = renderer;
     }
 
-    public WinHandler getWinHandler() {
-        return winHandler;
+    public GamepadHandler getGamepadHandler() {
+        return gamepadHandler;
     }
 
-    public void setWinHandler(WinHandler winHandler) {
-        this.winHandler = winHandler;
+    public void setGamepadHandler(GamepadHandler gamepadHandler) {
+        this.gamepadHandler = gamepadHandler;
     }
 
     public SHMSegmentManager getSHMSegmentManager() {

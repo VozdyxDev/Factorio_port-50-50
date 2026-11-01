@@ -1,0 +1,9 @@
+# Text files are stored with LF line endings (mixed CRLF/LF confused diffs and patches).
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.webp binary
+*.so binary
+*.tzst binary
+*.keystore binary
+*.jar binary

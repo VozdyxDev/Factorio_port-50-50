@@ -233,4 +233,18 @@
     <string name="diagnostics_confirm">Игра автоматически запустится %1$d раз (всего около %2$d мин) с разными настройками графики и будет закрываться. Не трогайте экран и держите устройство на зарядке. Ваши настройки будут восстановлены в конце.</string>
     <string name="diagnostics_done_title">Диагностика завершена</string>
     <string name="diagnostics_done_message">Ваши настройки восстановлены. Отправьте этот файл:\n\n%1$s</string>
+    <!-- game archive install -->
+    <string name="install_game_archive">Установить игру из архива</string>
+    <string name="installing_game_archive">Установка игры из архива…</string>
+    <string name="game_archive_installed">Игра %1$s установлена</string>
+    <string name="game_archive_failed">Архив игры не установлен: %1$s</string>
+    <string name="game_archive_chosen">%1$s будет установлен при следующем запуске игры</string>
+    <string name="game_archive_unusual_name">Необычное имя файла: %1$s. Нужен архив Linux ARM64 (factorio…linux-arm64…tar.xz)</string>
+    <string name="game_not_found_title">Игра не найдена</string>
+    <string name="game_not_found_message">Положите папку с игрой сюда: %1$s\n\nили архив игры (например factorio-space-age_linux-arm64_2.1.24.tar.xz) в %2$s, или выберите архив сейчас.</string>
+    <string name="choose_game_archive">Выбрать архив</string>
+    <string name="game_update_title">Обновление игры</string>
+    <string name="game_update_message">Установлена: %1$s\nНайдена: %2$s (%3$s)\n\nУстановить новую версию? Сохранения и моды останутся.</string>
+    <string name="game_update_install">Установить</string>
+    <string name="game_update_later">Не сейчас</string>
 </resources>
