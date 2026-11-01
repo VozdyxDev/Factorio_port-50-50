@@ -1,3 +1,13 @@
+# r40 — Zink DRI (быстрый показ кадров)
+- Новый workflow `build-zink-dri.yml`: Zink как обычный DRI-драйвер Mesa (как в Pocket Foundry). Кадр показывается через
+  Vulkan-swapchain Turnip (kopper → DRI3 / Present) и не читается каждый раз с GPU в память, как в xlib-сборке.
+- Пакет кладётся в свою папку `usr/lib/zink-dri/` (libGL, libgallium, dri/zink_dri.so, deps/), ничего в rootfs не заменяет.
+  Ставится в диалоге Zink кнопкой установки `.tzst`, версия `<версия>-dri`. Приложение само видит такой пакет и задаёт
+  `LIBGL_DRIVERS_PATH`, `MESA_LOADER_DRIVER_OVERRIDE=zink`, `LIBGL_DRI3_DISABLE=1` (переопределяется переменной контейнера).
+- xlib-сборка Zink (`build-zink.yml`, встроенная 26.2.0) остаётся как совместимый вариант; блок Vortek / Gladio не тронут.
+- В driver-report строка «Zink build: DRI / xlib».
+- R8: правила keep для zstd-jni и JNI-классов (падение release при распаковке rootfs); `commons-compress` 1.21.
+
 # r39 — оптимизация и установка игры из архива
 С этой версии нумерация одна: номер = `versionCode` (`appVersion` в `app/app/build.gradle`). Записи ниже («Порт vNN», «vNN»)
 велись в разных чатах и пронумерованы по-разному.
@@ -29,7 +39,7 @@
 ## Сборка и CI
 - `build.yml`: кэш Gradle и ccache, сборка release + debug, ключ из секретов (без них — прежний ключ).
 - Вместо `pickFirsts "**/*.so"` (прятал любые конфликты) — только `libc++_shared.so`.
-- `commons-compress` 1.20 → 1.26.2 (исправления уязвимостей), `xz` 1.7 → 1.9.
+- `commons-compress` 1.20 → 1.21 (исправления уязвимостей 2021 г.; 1.26 тянет commons-lang3, на котором падает R8 из AGP 7.2), `xz` 1.7 → 1.9.
 - Патчи Zink вынесены из YAML в `zink-patches/*.py`.
 - `DEBUG_MODE` серверов задаётся из CMake; окончания строк LF (`.gitattributes`).
 

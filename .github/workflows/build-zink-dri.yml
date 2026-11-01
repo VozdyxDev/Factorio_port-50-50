@@ -1,0 +1,173 @@
+name: Build Zink DRI (kopper, fast presentation)
+
+# Zink as a normal Mesa DRI driver, like Pocket Foundry: libGL (GLX) loads zink_dri.so, and Zink shows its frames through
+# Turnip's Vulkan swapchain (kopper) -> X11 DRI3 / Present. The frame stays in GPU memory: no read-back of every frame
+# into CPU memory as with the xlib build (build-zink.yml), which is kept for compatibility.
+#
+#   meson: -Dgallium-drivers=zink -Dglx=dri -Dplatforms=x11 -Dvulkan-drivers= -Dllvm=disabled -Dglvnd=disabled
+#          prefix=/data/data/@@@@@@@@@@@@@@@@@@@@@@@@@/usr  libdir=lib/zink-dri
+#
+# Everything goes to usr/lib/zink-dri/ (own folder: nothing in the rootfs is overwritten, e.g. its libglapi):
+#   usr/lib/zink-dri/libGL.so.1, libgallium-*.so, [libglapi.so.0], dri/zink_dri.so, deps/ (X libs Mesa needs)
+# The app uses this folder when the selected Zink package contains it (Zink settings -> install .tzst).
+#
+# Artifact: zink-<version>-dri.tzst -> install it in the Zink dialog (install icon), version "<version>-dri".
+
+on:
+  workflow_dispatch:
+    inputs:
+      mesa_ref:
+        description: 'Mesa tag (mesa-26.2.0, mesa-26.1.5 ...)'
+        required: true
+        default: 'mesa-26.2.0'
+      runner:
+        description: 'ARM runner (glibc of the runner must not be newer than the rootfs glibc)'
+        required: true
+        type: choice
+        default: 'ubuntu-24.04-arm'
+        options:
+          - ubuntu-24.04-arm
+          - ubuntu-22.04-arm
+
+env:
+  PFX: /data/data/@@@@@@@@@@@@@@@@@@@@@@@@@/usr
+  SUB: lib/zink-dri
+
+jobs:
+  build:
+    name: zink-dri
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 90
+    env:
+      MESA_REF: ${{ inputs.mesa_ref }}
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential git pkg-config bison flex zstd zip patch \
+            python3 python3-venv python3-pip glslang-tools \
+            libdrm-dev libexpat1-dev zlib1g-dev \
+            libx11-dev libx11-xcb-dev libxext-dev libxfixes-dev \
+            libxdamage-dev libxxf86vm-dev libxrandr-dev libxshmfence-dev \
+            libxcb1-dev libxcb-glx0-dev libxcb-dri2-0-dev libxcb-dri3-dev \
+            libxcb-present-dev libxcb-randr0-dev libxcb-shm0-dev \
+            libxcb-sync-dev libxcb-xfixes0-dev
+
+      - name: Install meson and python modules (venv)
+        run: |
+          python3 -m venv "$HOME/venv"
+          "$HOME/venv/bin/pip" install --upgrade pip
+          "$HOME/venv/bin/pip" install meson ninja mako pyyaml packaging pycparser ply
+          echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+
+      - name: Clone Mesa
+        run: |
+          git ls-remote --exit-code --tags --heads \
+            https://gitlab.freedesktop.org/mesa/mesa.git "$MESA_REF" \
+            || { echo "::error::Ref '$MESA_REF' not found"; exit 1; }
+          git clone --depth 1 --branch "$MESA_REF" \
+            https://gitlab.freedesktop.org/mesa/mesa.git mesa-src
+
+      - name: Configure
+        working-directory: mesa-src
+        run: |
+          F=$(ls meson.options meson_options.txt 2>/dev/null | head -n1)
+          python3 - "$F" > /tmp/opts.txt <<'PY'
+          import re, sys
+          print("\n".join(re.findall(r"option\(\s*['\"]([^'\"]+)['\"]", open(sys.argv[1]).read())))
+          PY
+          ARGS=()
+          add() {
+            if grep -qx -- "$1" /tmp/opts.txt; then ARGS+=("-D$1=$2")
+            else echo "::notice::option '$1' not in this Mesa, skipped"; fi
+          }
+          add platforms x11
+          add gallium-drivers zink
+          add vulkan-drivers ""
+          add dri-drivers ""
+          add glx dri
+          add glvnd disabled
+          add egl disabled
+          add gbm disabled
+          add gles1 disabled
+          add gles2 disabled
+          add shared-glapi enabled
+          add dri3 enabled
+          add llvm disabled
+          add gallium-va disabled
+          add gallium-vdpau disabled
+          add gallium-xa disabled
+          add lmsensors disabled
+          add libunwind disabled
+          add valgrind disabled
+          add zstd disabled
+          add build-tests false
+          echo "Options: ${ARGS[*]}"
+          meson setup build --buildtype=release -Dstrip=true \
+            -Dprefix="$PFX" -Dlibdir="$SUB" "${ARGS[@]}" \
+            || { tail -80 build/meson-logs/meson-log.txt; exit 1; }
+
+      - name: Build
+        working-directory: mesa-src
+        run: ninja -C build -j"$(nproc)"
+
+      - name: Install to stage
+        run: |
+          rm -rf stage
+          DESTDIR="$PWD/stage" ninja -C mesa-src/build install
+          ROOT="stage${PFX%/usr}"; DIR="$ROOT/usr/$SUB"
+          echo "===== everything Mesa installed ====="
+          find "$ROOT" \( -type f -o -type l \) | sort
+          rm -rf "$DIR/pkgconfig" "$ROOT/usr/include" "$ROOT/usr/bin"
+          # keep share/drirc.d (driver defaults), drop the rest of share
+          find "$ROOT/usr/share" -mindepth 1 -maxdepth 1 ! -name drirc.d -exec rm -rf {} + 2>/dev/null || true
+          [ -e "$DIR/libGL.so.1" ] || { echo "::error::libGL.so.1 was not built"; exit 1; }
+          ls "$DIR/dri/" | grep -q '^zink_dri.so$' || { echo "::error::dri/zink_dri.so was not built"; ls -la "$DIR/dri" || true; exit 1; }
+          ls -la "$DIR" "$DIR/dri"
+
+      - name: Bundle libraries Mesa needs (searched after the rootfs ones)
+        run: |
+          ROOT="stage${PFX%/usr}"; DIR="$ROOT/usr/$SUB"; DEPS="$DIR/deps"
+          mkdir -p "$DEPS"
+          have() { [ -e "$DIR/$1" ] || [ -e "$DIR/dri/$1" ]; }
+          NEED=$(for f in $(find "$DIR" -name '*.so*' -type f); do
+                   readelf -d "$f" 2>/dev/null | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'
+                 done | sort -u)
+          echo "NEEDED by the package:"; echo "$NEED"
+          for n in $NEED; do
+            case "$n" in
+              libc.so*|libm.so*|libdl.so*|libpthread.so*|librt.so*|ld-linux*|libgcc_s.so*|libstdc++.so*|libvulkan.so*) continue ;;
+            esac
+            have "$n" && continue
+            src=$(ldconfig -p | awk -v n="$n" '$1==n{print $NF; exit}')
+            if [ -n "$src" ]; then cp -L "$src" "$DEPS/$n"; echo "bundled $n"
+            else echo "::warning::$n not found on runner"; fi
+          done
+          ls -la "$DEPS"
+
+      - name: Package
+        run: |
+          VER="${MESA_REF#mesa-}"
+          ROOT="stage${PFX%/usr}"
+          mkdir -p out
+          tar --owner=0 --group=0 --numeric-owner -C "$ROOT" -cf - usr \
+            | zstd -19 -T0 -o "out/zink-${VER}-dri.tzst"
+          zstd -dc "out/zink-${VER}-dri.tzst" | tar -tvf - | tee out/contents.txt
+          {
+            echo "## zink-${VER}-dri"
+            for f in "$ROOT/usr/$SUB/libGL.so.1" "$ROOT/usr/$SUB/dri/zink_dri.so"; do
+              L=$(readlink -f "$f"); echo "### $(basename "$L")"
+              readelf -d "$L" | grep NEEDED
+              echo -n "max GLIBC: "; objdump -T "$L" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n1
+            done
+          } | tee out/deps.txt "$GITHUB_STEP_SUMMARY"
+          ls -lh out
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: zink-dri
+          path: out/*
+          if-no-files-found: error

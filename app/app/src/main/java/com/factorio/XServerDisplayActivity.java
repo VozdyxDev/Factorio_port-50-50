@@ -404,6 +404,8 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
                 sb.append("  ICD: ").append(icd != null ? icd.replaceAll("\\s+", " ").trim() : "MISSING").append("\n");
                 String[] deps = new File(libDir, "turnip-deps").list();
                 sb.append("  turnip-deps: ").append(deps != null ? java.util.Arrays.toString(deps) : "none").append("\n");
+                File zinkDri = new File(libDir, "zink-dri/libGL.so.1");
+                sb.append("  Zink build: ").append(zinkDri.exists() ? "DRI (kopper, frames via the Vulkan swapchain / DRI3)" : "xlib (frames read back to CPU memory)").append("\n");
             }
 
             if (graphicsDriver[1].equals(GraphicsDrivers.ZINK)) {
@@ -911,6 +913,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             FileUtils.delete(new File(libDir, "libvulkan_freedreno.so"));
             FileUtils.delete(new File(libDir, "libvulkan_vortek.so"));
             FileUtils.delete(new File(libDir, "turnip-deps"));
+            FileUtils.delete(new File(libDir, "zink-dri"));
             File[] oldGL = libDir.listFiles((dir, name) -> name.startsWith("libGL.so"));
             if (oldGL != null) for (File file : oldGL) FileUtils.delete(file);
 
@@ -989,6 +992,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             FileUtils.delete(new File(libDir, "libvulkan_freedreno.so"));
             FileUtils.delete(new File(libDir, "libvulkan_vortek.so")); // left over from the Vortek block
             FileUtils.delete(new File(libDir, "turnip-deps")); // libraries that come with a Turnip build: never keep the ones of the previous build
+            FileUtils.delete(new File(libDir, "zink-dri")); // Mesa of a Zink DRI package (own folder, see build-zink-dri.yml)
             File[] oldGL = libDir.listFiles((dir, name) -> name.startsWith("libGL.so")); // any libGL version of a previous Zink
             if (oldGL != null) for (File file : oldGL) FileUtils.delete(file);
 

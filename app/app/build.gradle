@@ -5,7 +5,7 @@ apply plugin: 'com.android.application'
 def prebuiltNativeDir = project.findProperty('factorioPrebuiltNativeDir')
 
 // One version number for everything (CHANGES, diagnostics, "App version code" in the reports).
-def appVersion = 39
+def appVersion = 40
 
 // Release signing: a keystore from the CI secrets / gradle properties if it is given,
 // otherwise the same debug-fixed.keystore as before (same signature, so updates keep working).
@@ -109,5 +109,5 @@ dependencies {
     implementation 'com.google.android.material:material:1.4.0'
     implementation 'com.github.luben:zstd-jni:1.5.2-3@aar'
     implementation 'org.tukaani:xz:1.9'
-    implementation 'org.apache.commons:commons-compress:1.26.2'
+    implementation 'org.apache.commons:commons-compress:1.21' // 1.26 pulls commons-lang3 3.14, which crashes R8 of AGP 7.2
 }

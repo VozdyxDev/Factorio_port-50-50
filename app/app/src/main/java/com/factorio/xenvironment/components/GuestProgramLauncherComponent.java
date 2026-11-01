@@ -255,6 +255,23 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
             envVars.remove("ZINK_DEBUG");
             envVars.remove("MESA_GL_VERSION_OVERRIDE");
         }
+        // Zink DRI package (build-zink-dri.yml): its own Mesa in usr/lib/zink-dri. Zink then shows the frames through
+        // Turnip's Vulkan swapchain (kopper -> DRI3 / Present) instead of reading every frame back like the xlib build.
+        File zinkDriDir = new File(rootFS.getLibDir(), "zink-dri");
+        boolean zinkDri = !nativeGL && GraphicsDrivers.ZINK.equals(GraphicsDrivers.parseIdentifiers(selectedContainer.getGraphicsDriver())[1])
+                && new File(zinkDriDir, "libGL.so.1").exists();
+        if (zinkDri) {
+            libPath = zinkDriDir.getPath()+":"+libPath;
+            File zinkDriDeps = new File(zinkDriDir, "deps");
+            if (zinkDriDeps.isDirectory()) libPath += ":"+zinkDriDeps.getPath(); // after the rootfs: its libraries win
+            envVars.put("LIBGL_DRIVERS_PATH", zinkDriDir.getPath()+"/dri");
+            envVars.put("MESA_LOADER_DRIVER_OVERRIDE", "zink");
+            envVars.put("GALLIUM_DRIVER", "zink");
+            // GLX through drisw = kopper (Vulkan swapchain). DRI3 in GLX would need a DRM device the X server does not give.
+            // A container variable LIBGL_DRI3_DISABLE (e.g. =0 for tests) wins.
+            if (!envVars.has("LIBGL_DRI3_DISABLE")) envVars.put("LIBGL_DRI3_DISABLE", "1");
+            envVars.remove("ZINK_CONTEXT_THREADED"); // only the patched xlib build reads it
+        }
         envVars.put("LD_LIBRARY_PATH", libPath);
 
         // Factorio does not know that it runs through the glibc loader:
