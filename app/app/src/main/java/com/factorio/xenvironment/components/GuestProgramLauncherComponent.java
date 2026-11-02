@@ -246,6 +246,9 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
 
         String nativeArgs = envVars.get("NATIVE_ARGS");
         if (nativeArgs != null && !nativeArgs.isEmpty()) extraArgs += " "+nativeArgs;
+        // NATIVE_LOAD_GAME=<save path> (performance tests): start straight into that save
+        String loadGame = envVars.get("NATIVE_LOAD_GAME");
+        if (loadGame != null && !loadGame.isEmpty() && new File(loadGame).isFile()) extraArgs += " --load-game "+loadGame;
 
         // NATIVE_MESA_SRC: use a Mesa build with the Freedreno/KGSL OpenGL driver (direct OpenGL, no Zink).
         //   NATIVE_MESA_SRC = /storage/emulated/0/Download/mesa   (folder that contains lib/ and dri/)

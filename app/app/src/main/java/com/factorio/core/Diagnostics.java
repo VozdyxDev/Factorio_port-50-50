@@ -449,11 +449,10 @@ public class Diagnostics {
                 resetConfigFromBackup(activity);
                 // the user's own game config (graphics quality, ...) is used; only gfxPatch keys change
                 if (variant.gfxPatch != null) envVars.put("NATIVE_GFX_PATCH", variant.gfxPatch);
+                // the container variables are one string split at spaces: the save goes in its own variable (no spaces)
+                envVars.remove("NATIVE_LOAD_GAME");
                 String save = state.optString("save");
-                if (variant.loadGame && !save.isEmpty() && new File(save).isFile()) {
-                    String args = envVars.get("NATIVE_ARGS");
-                    envVars.put("NATIVE_ARGS", ((args != null ? args+" " : "")+"--load-game "+save).trim());
-                }
+                if (variant.loadGame && !save.isEmpty() && new File(save).isFile()) envVars.put("NATIVE_LOAD_GAME", save);
                 // driver package (Zink version) and resolution of this test
                 if (variant.zinkVersion != null) {
                     com.factorio.core.KeyValueSet[] configs = GraphicsDrivers.parseConfigs(variant.driver, snapshot.optString("graphicsDriverConfig"));
@@ -478,10 +477,17 @@ public class Diagnostics {
             container.setEnvVars(envVars.toString());
             container.saveData();
 
+            appendSummary(new File(state.getString("runDir")), String.format(Locale.US, "  starting %s: driver %s, config %s, screen %s, NATIVE_LOAD_GAME=%s, NATIVE_GFX_PATCH=%s, extra %s",
+                variant.id, container.getGraphicsDriver(), container.getGraphicsDriverConfig(), container.getScreenSize(),
+                envVars.get("NATIVE_LOAD_GAME"), envVars.get("NATIVE_GFX_PATCH"), variant.extraEnv));
             return new Session(activity, state, variant, index, variants.size(), longMode);
         }
-        catch (Exception e) {
+        catch (Throwable e) {
             Log.e(TAG, "beginVariant failed", e);
+            try {
+                if (state != null) appendSummary(new File(state.getString("runDir")), "  ERROR: setup could not start: "+Log.getStackTraceString(e));
+            }
+            catch (Exception ignored) {}
             return null;
         }
     }
