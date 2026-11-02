@@ -269,6 +269,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             gamepadListener = null;
         }
         gamepadHandler.stopBridge();
+        com.factorio.core.PerfHint.stop();
         stopPerfLog();
         if (environment != null) environment.stopEnvironmentComponents();
         super.onDestroy();
@@ -663,6 +664,8 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         xServer.setWireTraceEnabled("1".equals(envVars.get("X11_WIRE_TRACE")));
         // X_PRESENT_SYNC=0 (tests): no DMA_BUF_IOCTL_SYNC around the CPU read of a presented frame
         presentDmabufSync = !"0".equals(envVars.get("X_PRESENT_SYNC"));
+        // X_PERF_HINT=1: ask Android for speed (ADPF hint session + game state), see PerfHint
+        perfHintEnabled = "1".equals(envVars.get("X_PERF_HINT"));
 
         environment = new XEnvironment(this, rootFS);
         environment.addComponent(new SysVSharedMemoryComponent(xServer, UnixSocketConfig.create(rootPath, UnixSocketConfig.SYSVSHM_SERVER_PATH)));
@@ -713,6 +716,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         environment.startEnvironmentComponents();
         if (diag != null) diag.onEnvironmentStarted(xServerView);
         else startPerfLogIfEnabled();
+        if (perfHintEnabled) com.factorio.core.PerfHint.start(this);
 
         envVars.clear();
         graphicsDriver = null;
@@ -904,6 +908,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
      * DRI3 1.0 / Present 1.0, the versions they were tested with.
      */
     private volatile boolean presentDmabufSync = true;
+    private volatile boolean perfHintEnabled = false;
 
     public boolean isPresentDmabufSync() {
         return presentDmabufSync;

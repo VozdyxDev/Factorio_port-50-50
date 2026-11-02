@@ -127,9 +127,10 @@ public class Diagnostics {
         // r49: the main game thread spends ~43 % in an ioctl on /dev/kgsl-3d0 (OpenGL KGSL too: 39 %), GPU busy ~46 %:
         // CPU and GPU take turns instead of working in parallel. Now: which ioctl, and does a longer swapchain help.
         list.add(perfVariant("P01-base", name+", native (baseline)", tz, zink, nat, true, null, null));
-        list.add(perfVariant("P02-4-images", name+", native, swapchain of at least 4 images (vk_x11_override_min_image_count=4)", tz, zink, nat, true, null, "vk_x11_override_min_image_count=4"));
-        if (GPUHelper.isAdreno(context)) list.add(perfVariant("P03-opengl-kgsl", "OpenGL (Freedreno KGSL), native", "turnip,opengl", null, nat, true, null, null));
-        list.add(perfVariant("P04-fifo", name+", native, Vulkan present mode FIFO", tz, zink, nat, true, null, "MESA_VK_WSI_PRESENT_MODE=fifo"));
+        // r50: the GPU stays at 389 of 1200 MHz (clock_mhz) while the main thread waits for it: ask Android for speed.
+        list.add(perfVariant("P02-perf-hint", name+", native, ADPF hint session + GameManager gameplay (X_PERF_HINT=1)", tz, zink, nat, true, null, "X_PERF_HINT=1"));
+        if (GPUHelper.isAdreno(context)) list.add(perfVariant("P03-opengl-kgsl-hint", "OpenGL (Freedreno KGSL), native, X_PERF_HINT=1", "turnip,opengl", null, nat, true, null, "X_PERF_HINT=1"));
+        if (GPUHelper.isAdreno(context)) list.add(perfVariant("P04-opengl-kgsl", "OpenGL (Freedreno KGSL), native", "turnip,opengl", null, nat, true, null, null));
         list.add(perfVariant("P05-720p", name+", 720p", tz, zink, ScreenResolution.MODE_720P, true, null, null));
         list.add(perfVariant("P06-like-pocket-foundry", name+", native, Mesa variables as Pocket Foundry (none of ours)", tz, zink, nat, true, null, "X_UNSET="+likePocketFoundry));
         if (dri != null) list.add(perfVariant("P07-zink-xlib", "Zink "+DefaultVersion.ZINK+" (xlib), native", tz, DefaultVersion.ZINK, nat, true, null, null));

@@ -1,3 +1,11 @@
+# r51 — GPU стоит на минимальной частоте
+Прогон r50: `clock_mhz` читается и всё время замера = **389 МГц** (минимум, максимум 1200; governor msm-adreno-tz).
+Главный поток игры 43 % ждёт `WAITTIMESTAMP_CTXTID` (окончания работы GPU). GPU занят ~45 % → governor не поднимает
+частоту → кадр на GPU в ~3 раза дольше. 4 изображения swapchain — без изменений (35.4).
+- `core/PerfHint` (X_PERF_HINT=1): ADPF hint session (PerformanceHintManager) с потоками игры, отчёт длительности каждого
+  кадра против цели 16.7 мс; GameManager.setGameState(gameplay). Результат каждого шага — в events perf-summary.
+- Тесты: P02 Zink + hint, P03 OpenGL KGSL + hint, P04 OpenGL KGSL, P05 720p …
+
 # r50 — главный поток игры ждёт GPU
 Прогон r49 (WaitSampler, 2m_final, нативное): главный поток игры 34 % работает, **43.5 % спит в ioctl на /dev/kgsl-3d0**,
 22 % futex; GameUpdate 72 % работает. OpenGL KGSL: 40 % работает, 38.6 % kgsl ioctl (и 39.8 FPS). GPU занят ~46 %.
