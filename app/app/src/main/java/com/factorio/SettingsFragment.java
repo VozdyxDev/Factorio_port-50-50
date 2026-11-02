@@ -112,8 +112,12 @@ public class SettingsFragment extends Fragment {
         sLanguage.setSelection(LocaleHelper.getLocaleIndex(context));
         final int oldLCIndex = sLanguage.getSelectedItemPosition();
 
-        view.findViewById(R.id.BTDiagnostics).setOnClickListener((v) -> startDiagnostics(false));
-        view.findViewById(R.id.BTDiagnosticsLong).setOnClickListener((v) -> startDiagnostics(true));
+        view.findViewById(R.id.BTDiagnostics).setOnClickListener((v) -> startDiagnostics(com.factorio.core.Diagnostics.MODE_SHORT));
+        view.findViewById(R.id.BTDiagnosticsLong).setOnClickListener((v) -> startDiagnostics(com.factorio.core.Diagnostics.MODE_LONG));
+        view.findViewById(R.id.BTDiagnosticsPerf).setOnClickListener((v) -> startDiagnostics(com.factorio.core.Diagnostics.MODE_PERF));
+        final CheckBox cbPerfLog = view.findViewById(R.id.CBPerfLog);
+        cbPerfLog.setChecked(preferences.getBoolean("perf_log", false));
+        cbPerfLog.setOnCheckedChangeListener((buttonView, isChecked) -> preferences.edit().putBoolean("perf_log", isChecked).apply());
 
         view.findViewById(R.id.BTConfirm).setOnClickListener((v) -> {
             if (container != null) {
@@ -206,16 +210,30 @@ public class SettingsFragment extends Fragment {
         }
     }
 
-    private void startDiagnostics(final boolean longMode) {
+    private void startDiagnostics(final int mode) {
         final Activity activity = getActivity();
         if (activity == null) return;
-        final int count = com.factorio.core.Diagnostics.buildVariants(activity, longMode).size();
-        final int minutes = com.factorio.core.Diagnostics.estimateMinutes(activity, longMode);
+        final int count = com.factorio.core.Diagnostics.buildVariants(activity, mode).size();
+        final int minutes = com.factorio.core.Diagnostics.estimateMinutes(activity, mode);
+        String message;
+        int title;
+        if (mode == com.factorio.core.Diagnostics.MODE_PERF) {
+            title = R.string.diagnostics_perf;
+            java.io.File save = com.factorio.core.Diagnostics.findNewestSave(activity);
+            String dri = com.factorio.core.Diagnostics.findZinkDri(activity);
+            message = getString(R.string.diagnostics_perf_confirm, count, minutes,
+                save != null ? save.getName() : getString(R.string.diagnostics_perf_no_save),
+                dri != null ? "Zink "+dri : "Zink "+com.factorio.core.DefaultVersion.ZINK+" (xlib)");
+        }
+        else {
+            title = mode == com.factorio.core.Diagnostics.MODE_LONG ? R.string.diagnostics_long : R.string.diagnostics;
+            message = getString(R.string.diagnostics_confirm, count, minutes);
+        }
         new androidx.appcompat.app.AlertDialog.Builder(activity)
-            .setTitle(longMode ? R.string.diagnostics_long : R.string.diagnostics)
-            .setMessage(getString(R.string.diagnostics_confirm, count, minutes))
+            .setTitle(title)
+            .setMessage(message)
             .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(android.R.string.ok, (dialog, which) -> com.factorio.core.Diagnostics.start(activity, longMode))
+            .setPositiveButton(android.R.string.ok, (dialog, which) -> com.factorio.core.Diagnostics.start(activity, mode))
             .show();
     }
 }

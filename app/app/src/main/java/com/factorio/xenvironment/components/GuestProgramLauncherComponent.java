@@ -204,6 +204,31 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
                 }
                 FileUtils.writeString(configFile, config.toString());
             }
+            // NATIVE_GFX_PATCH=key=value;key2=value2 (performance tests): changes only keys that already are in the
+            // game's own config (the user's settings stay; an unknown key is never added, which would make the game
+            // reject the file). The result is written to config-patch-result.txt next to the logs.
+            String gfxPatch = envVars.get("NATIVE_GFX_PATCH");
+            if (gfxPatch != null && !gfxPatch.isEmpty() && configFile.isFile()) {
+                com.factorio.core.Diagnostics.backupConfig(environment.getContext(), configFile);
+                String text = FileUtils.readString(configFile);
+                StringBuilder report = new StringBuilder("NATIVE_GFX_PATCH="+gfxPatch+"\n");
+                if (text != null) {
+                    for (String item : gfxPatch.split(";")) {
+                        int eq = item.indexOf('=');
+                        if (eq <= 0) continue;
+                        String key = item.substring(0, eq).trim(), value = item.substring(eq + 1).trim();
+                        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(?m)^"+java.util.regex.Pattern.quote(key)+"=.*$").matcher(text);
+                        if (matcher.find()) {
+                            report.append("  ").append(matcher.group()).append(" -> ").append(key).append('=').append(value).append('\n');
+                            text = matcher.replaceAll(java.util.regex.Matcher.quoteReplacement(key+"="+value));
+                        }
+                        else report.append("  ").append(key).append(": NOT in the config, not changed\n");
+                    }
+                    FileUtils.writeString(configFile, text);
+                }
+                File reportDir = LogView.getLogFile().getParentFile();
+                if (reportDir != null && reportDir.isDirectory()) FileUtils.writeString(new File(reportDir, "config-patch-result.txt"), report.toString());
+            }
             extraArgs = " --config "+configFile.getPath();
         }
         // Factorio saves its fullscreen window size into the very same --config ini file

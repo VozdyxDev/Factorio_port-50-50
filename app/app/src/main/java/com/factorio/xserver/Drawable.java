@@ -195,6 +195,7 @@ public class Drawable extends XResource {
 
     public void forceUpdate() {
         if (!offscreenStorage) {
+            if (com.factorio.core.PerfStats.enabled) com.factorio.core.PerfStats.frameUpdate(width, height);
             texture.setNeedsUpdate(true);
             if (onDrawListener != null) onDrawListener.run();
         }

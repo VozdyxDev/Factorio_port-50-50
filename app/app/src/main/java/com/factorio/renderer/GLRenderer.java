@@ -104,6 +104,19 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
 
     @Override
     public void onDrawFrame(GL10 gl) {
+        final long perfStart = com.factorio.core.PerfStats.now();
+        try {
+            drawFrameTimed();
+        }
+        finally {
+            if (perfStart != 0) {
+                com.factorio.core.PerfStats.glFrames.incrementAndGet();
+                com.factorio.core.PerfStats.glFrameNanos.addAndGet(System.nanoTime() - perfStart);
+            }
+        }
+    }
+
+    private void drawFrameTimed() {
         if (toggleFullscreen) {
             fullscreen = !fullscreen;
             toggleFullscreen = false;
@@ -210,9 +223,16 @@ public class GLRenderer implements GLSurfaceView.Renderer, WindowManager.OnWindo
     }
 
     private void renderWindowDrawable(Drawable drawable, int x, int y, boolean transparent, FullscreenTransformation fullscreenTransformation) {
+        long perfWait = com.factorio.core.PerfStats.now();
         synchronized (drawable.renderLock) {
+            long perfUpload = 0;
+            if (perfWait != 0) {
+                perfUpload = System.nanoTime();
+                com.factorio.core.PerfStats.glRenderLockWaitNanos.addAndGet(perfUpload - perfWait);
+            }
             Texture texture = drawable.getTexture();
             texture.updateFromDrawable();
+            if (perfUpload != 0) com.factorio.core.PerfStats.glTextureUploadNanos.addAndGet(System.nanoTime() - perfUpload);
 
             if (fullscreenTransformation != null) {
                 XForm.set(tmpXForm1, fullscreenTransformation.x, fullscreenTransformation.y, fullscreenTransformation.width, fullscreenTransformation.height);

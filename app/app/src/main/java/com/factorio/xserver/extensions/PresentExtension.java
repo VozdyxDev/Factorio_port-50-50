@@ -173,11 +173,15 @@ public class PresentExtension extends Extension {
         Drawable content = window.getContent();
         if (pixmap != null && content.visual.depth != pixmap.drawable.visual.depth) throw new BadMatch();
 
+        long perfWait = com.factorio.core.PerfStats.now();
         synchronized (content.renderLock) {
+            if (perfWait != 0) com.factorio.core.PerfStats.presentRenderLockWaitNanos.addAndGet(System.nanoTime() - perfWait);
             if (pixmap != null) {
                 Drawable src = pixmap.drawable;
                 int syncFd = src.syncFd;
+                long perfSync = com.factorio.core.PerfStats.now();
                 if (syncFd >= 0) SysVSharedMemory.dmabufSync(syncFd, true);   // invalidate CPU cache before reading GPU-written memory
+                if (perfSync != 0) com.factorio.core.PerfStats.presentSyncNanos.addAndGet(System.nanoTime() - perfSync);
 
                 int nonZero = sampleNonZero(src.getData());
                 presentCount++;
@@ -187,10 +191,19 @@ public class PresentExtension extends Extension {
                 // screen (longer than that) is still shown.
                 if (nonZero > 0) blankRun = 0; else blankRun++;
                 boolean skip = syncFd >= 0 && nonZero == 0 && blankRun <= 3;
-                if (skip) skippedBlank++;
-                else content.copyArea((short)0, (short)0, xOff, yOff, src.width, src.height, src);
+                if (skip) {
+                    skippedBlank++;
+                    if (perfSync != 0) com.factorio.core.PerfStats.presentSkipped.incrementAndGet();
+                }
+                else {
+                    long perfCopy = com.factorio.core.PerfStats.now();
+                    content.copyArea((short)0, (short)0, xOff, yOff, src.width, src.height, src);
+                    if (perfCopy != 0) com.factorio.core.PerfStats.presentCopyNanos.addAndGet(System.nanoTime() - perfCopy);
+                }
 
+                long perfSyncEnd = com.factorio.core.PerfStats.now();
                 if (syncFd >= 0) SysVSharedMemory.dmabufSync(syncFd, false);
+                if (perfSyncEnd != 0) com.factorio.core.PerfStats.presentSyncNanos.addAndGet(System.nanoTime() - perfSyncEnd);
                 sendIdleNotify(window, pixmap, serial, idleFence);
             }
             else content.forceUpdate();
@@ -246,11 +259,18 @@ public class PresentExtension extends Extension {
             case ClientOpcodes.QUERY_VERSION :
                 queryVersion(client, inputStream, outputStream);
                 break;
-            case ClientOpcodes.PRESENT_PIXMAP:
+            case ClientOpcodes.PRESENT_PIXMAP: {
+                long perfStart = com.factorio.core.PerfStats.now();
                 try (XLock lock = xServer.lock(XServer.Lockable.WINDOW_MANAGER, XServer.Lockable.PIXMAP_MANAGER)) {
+                    if (perfStart != 0) com.factorio.core.PerfStats.presentLockWaitNanos.addAndGet(System.nanoTime() - perfStart);
                     presentPixmap(client, inputStream, outputStream);
                 }
+                if (perfStart != 0) {
+                    com.factorio.core.PerfStats.presents.incrementAndGet();
+                    com.factorio.core.PerfStats.presentNanos.addAndGet(System.nanoTime() - perfStart);
+                }
                 break;
+            }
             case ClientOpcodes.NOTIFY_MSC:
                 try (XLock lock = xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
                     notifyMSC(client, inputStream, outputStream);

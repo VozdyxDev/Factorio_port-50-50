@@ -143,8 +143,13 @@ public class MITSHMExtension extends Extension {
                 }
                 break;
             case ClientOpcodes.PUT_IMAGE :
+                long perfStart = com.factorio.core.PerfStats.now();
                 try (XLock lock = xServer.lock(XServer.Lockable.SHMSEGMENT_MANAGER, XServer.Lockable.DRAWABLE_MANAGER, XServer.Lockable.GRAPHIC_CONTEXT_MANAGER)) {
                     putImage(client, inputStream, outputStream);
+                }
+                if (perfStart != 0) {
+                    com.factorio.core.PerfStats.shmPutImages.incrementAndGet();
+                    com.factorio.core.PerfStats.shmPutImageNanos.addAndGet(System.nanoTime() - perfStart);
                 }
                 break;
             case ClientOpcodes.CREATE_PIXMAP :

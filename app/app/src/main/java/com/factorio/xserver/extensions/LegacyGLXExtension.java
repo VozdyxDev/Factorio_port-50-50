@@ -341,6 +341,7 @@ public class LegacyGLXExtension extends Extension {
 
     @Keep
     private boolean updateWindowContent(int drawableId, short width, short height, boolean flipY) {
+        if (com.factorio.core.PerfStats.enabled) com.factorio.core.PerfStats.gladioUpdates.incrementAndGet();
         Drawable drawable = xServer.drawableManager.getDrawable(drawableId);
         if (drawable == null) return true;
 

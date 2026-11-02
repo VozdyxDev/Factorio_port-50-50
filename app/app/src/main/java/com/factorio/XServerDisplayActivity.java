@@ -269,6 +269,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             gamepadListener = null;
         }
         gamepadHandler.stopBridge();
+        stopPerfLog();
         if (environment != null) environment.stopEnvironmentComponents();
         super.onDestroy();
     }
@@ -504,6 +505,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
 
     private void exit() {
         gamepadHandler.stopBridge();
+        stopPerfLog(); // writes perf-summary.txt before the process ends
         if (environment != null) environment.stopEnvironmentComponents();
 
         // "Exit" closes the whole app. It must NOT restart the app, otherwise MainActivity starts again
@@ -708,6 +710,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
         setupNativeGamepadBridge();
         environment.startEnvironmentComponents();
         if (diag != null) diag.onEnvironmentStarted(xServerView);
+        else startPerfLogIfEnabled();
 
         envVars.clear();
         graphicsDriver = null;
@@ -1083,6 +1086,32 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
 
     public XServer getXServer() {
         return xServer;
+    }
+
+    // ---- performance log while playing (Settings: "Performance log while playing") ----
+    private com.factorio.core.PerfMonitor perfLog;
+
+    private void startPerfLogIfEnabled() {
+        if (!PreferenceManager.getDefaultSharedPreferences(this).getBoolean("perf_log", false)) return;
+        File logDir = com.factorio.widget.LogView.getLogFile().getParentFile();
+        if (logDir == null) return;
+        logDir.mkdirs();
+        // keep the 5 newest perf-* folders
+        File[] old = logDir.listFiles((dir, name) -> name.startsWith("perf-") && new File(dir, name).isDirectory());
+        if (old != null && old.length >= 5) {
+            java.util.Arrays.sort(old, (a, b) -> Long.compare(a.lastModified(), b.lastModified()));
+            for (int i = 0; i <= old.length - 5; i++) FileUtils.delete(old[i]);
+        }
+        String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(new java.util.Date());
+        String driver = container != null ? container.getGraphicsDriver()+" "+container.getGraphicsDriverConfig()+" "+container.getScreenSize() : "";
+        perfLog = com.factorio.core.PerfMonitor.start(this, new File(logDir, "perf-"+stamp), "play: "+driver);
+    }
+
+    private void stopPerfLog() {
+        if (perfLog != null) {
+            perfLog.stop();
+            perfLog = null;
+        }
     }
 
     public GamepadHandler getGamepadHandler() {

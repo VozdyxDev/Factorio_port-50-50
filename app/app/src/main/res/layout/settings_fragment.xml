@@ -324,7 +324,18 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="@string/diagnostics_long"/>
+                    <Button
+                        android:id="@+id/BTDiagnosticsPerf"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/diagnostics_perf"/>
                 </LinearLayout>
+                <CheckBox
+                    android:id="@+id/CBPerfLog"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/perf_log"/>
             </LinearLayout>
             </LinearLayout>
         </LinearLayout>

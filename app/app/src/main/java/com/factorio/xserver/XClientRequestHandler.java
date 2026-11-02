@@ -160,9 +160,13 @@ public class XClientRequestHandler implements RequestHandler {
         client.setRequestLength(requestLength);
         client.traceRequest(opcode & 255, requestData & 255, requestLength);
 
+        final long perfStart = com.factorio.core.PerfStats.now();
+        boolean perfError = false;
+        String perfExtension = null;
         try {
             if (opcode < 0) {
                 Extension extension = client.xServer.getExtension(opcode);
+                if (perfStart != 0 && extension != null) perfExtension = extension.getName();
                 // Unknown extension: report an error instead of leaving the request unread and unanswered
                 // (the client would wait on the socket forever).
                 if (extension == null) throw new BadImplementation();
@@ -373,8 +377,17 @@ public class XClientRequestHandler implements RequestHandler {
                         }
                         break;
                     case ClientOpcodes.PUT_IMAGE:
-                        try (XLock lock = client.xServer.lock(XServer.Lockable.DRAWABLE_MANAGER, XServer.Lockable.GRAPHIC_CONTEXT_MANAGER)) {
-                            DrawRequests.putImage(client, inputStream, outputStream);
+                        {
+                            long perfPut = com.factorio.core.PerfStats.now();
+                            int perfBytes = client.getRemainingRequestLength();
+                            try (XLock lock = client.xServer.lock(XServer.Lockable.DRAWABLE_MANAGER, XServer.Lockable.GRAPHIC_CONTEXT_MANAGER)) {
+                                DrawRequests.putImage(client, inputStream, outputStream);
+                            }
+                            if (perfPut != 0) {
+                                com.factorio.core.PerfStats.putImages.incrementAndGet();
+                                com.factorio.core.PerfStats.putImageNanos.addAndGet(System.nanoTime() - perfPut);
+                                com.factorio.core.PerfStats.putImageBytes.addAndGet(perfBytes);
+                            }
                         }
                         break;
                     case ClientOpcodes.GET_IMAGE:
@@ -510,8 +523,12 @@ public class XClientRequestHandler implements RequestHandler {
             }
         }
         catch (XRequestError e) {
+            perfError = true;
             client.skipRequest();
             e.sendError(client, opcode);
+        }
+        finally {
+            if (perfStart != 0) com.factorio.core.PerfStats.request(opcode & 255, requestData & 255, perfExtension, System.nanoTime() - perfStart, perfError);
         }
 
         return true;

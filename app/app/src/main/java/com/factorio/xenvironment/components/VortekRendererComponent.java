@@ -175,6 +175,7 @@ public class VortekRendererComponent extends EnvironmentComponent implements Con
 
     @Keep
     private void updateWindowContent(int windowId) {
+        if (com.factorio.core.PerfStats.enabled) com.factorio.core.PerfStats.vortekUpdates.incrementAndGet();
         Window window = xServer.windowManager.getWindow(windowId);
         if (window != null) {
             Drawable drawable = window.getContent();

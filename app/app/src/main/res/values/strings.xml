@@ -263,4 +263,8 @@
     <string name="game_update_message">Installed: %1$s\nFound: %2$s (%3$s)\n\nInstall the new version? Saves and mods are kept.</string>
     <string name="game_update_install">Install</string>
     <string name="game_update_later">Not now</string>
+    <string name="diagnostics_perf">Performance tests</string>
+    <string name="diagnostics_perf_confirm">%1$d tests (about %2$d min). Each test loads your newest save (%3$s), waits and measures FPS, CPU per thread, GPU and the X server. Main driver: %4$s. Do not touch the screen and keep the device charged. Your settings and game config are restored at the end. Send the zip from the logs folder.</string>
+    <string name="diagnostics_perf_no_save">no save found: main menu only</string>
+    <string name="perf_log">Performance log while playing (perf-*/ next to the logs)</string>
 </resources>

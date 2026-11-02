@@ -48,6 +48,11 @@ import java.util.zip.ZipOutputStream;
 public class Diagnostics {
     public static final int SHORT_SECONDS = 15;
     public static final int LONG_SECONDS = 300;
+    public static final int MODE_SHORT = 0, MODE_LONG = 1, MODE_PERF = 2;
+    /** Performance tests: the save is loaded, then SETTLE s of waiting and MEASURE s of measuring; MAX is the limit. */
+    public static final int PERF_SETTLE_SECONDS = 15;
+    public static final int PERF_MEASURE_SECONDS = 45;
+    public static final int PERF_MAX_SECONDS = 480;
     private static final String TAG = "Diagnostics";
     private static final String STATE_FILE = "diagnostics-state.json";
     public static final String EXTRA_RUN = "diagnostics_run";
@@ -60,6 +65,12 @@ public class Diagnostics {
         public final String vortekConfig; // "bcnMode=1,resourceMemoryType=3" (only for Vortek setups)
         public final String nativeGfx;    // value for NATIVE_GFX or null (= game settings are reset to the defaults)
         public final String extraEnv;     // "A=1;B=2" additional container variables or null
+        // performance tests only
+        public boolean perf = false;
+        public String zinkVersion;        // Zink package for this setup (e.g. "26.2.0-dri"), null = the user's
+        public int screenMode = -1;       // ScreenResolution.MODE_*, -1 = the user's resolution
+        public boolean loadGame = false;  // start the newest save with --load-game (else: main menu)
+        public String gfxPatch;           // NATIVE_GFX_PATCH: keys changed in the user's own game config
 
         Variant(String id, String title, String driver, String vortekConfig, String nativeGfx) {
             this(id, title, driver, vortekConfig, nativeGfx, null);
@@ -73,6 +84,55 @@ public class Diagnostics {
             this.vortekConfig = vortekConfig;
             this.nativeGfx = nativeGfx;
         }
+    }
+
+    private static Variant perfVariant(String id, String title, String driver, String zinkVersion, int screenMode, boolean loadGame,
+                                       String gfxPatch, String extraEnv) {
+        Variant v = new Variant(id, title, driver, null, null, extraEnv);
+        v.perf = true;
+        v.zinkVersion = zinkVersion;
+        v.screenMode = screenMode;
+        v.loadGame = loadGame;
+        v.gfxPatch = gfxPatch;
+        return v;
+    }
+
+    /** The newest installed Zink DRI package ("26.2.0-dri"), or null. */
+    public static String findZinkDri(Context context) {
+        String best = null;
+        for (String name : GeneralComponents.getInstalledComponentNames(GeneralComponents.Type.ZINK, context)) {
+            if (name.endsWith("-dri") && (best == null || name.compareTo(best) > 0)) best = name;
+        }
+        return best;
+    }
+
+    /**
+     * Performance tests: every setup loads the newest save, waits PERF_SETTLE_SECONDS, measures PERF_MEASURE_SECONDS
+     * (frames/s, CPU per thread, GPU, X server times, see PerfMonitor). The user's own game config is used; only the keys
+     * a setup names are changed. To add a test, add one line here.
+     */
+    private static List<Variant> buildPerfVariants(Context context) {
+        ArrayList<Variant> list = new ArrayList<>();
+        final String tz = "turnip,zink";
+        final int nat = ScreenResolution.MODE_NATIVE;
+        String dri = findZinkDri(context);
+        String zink = dri != null ? dri : DefaultVersion.ZINK;
+        String name = "Zink "+zink;
+        list.add(perfVariant("P01-base", name+", native, game VSync as set (baseline)", tz, zink, nat, true, null, null));
+        list.add(perfVariant("P02-vsync-off", name+", native, game VSync OFF", tz, zink, nat, true, "vsync=false", null));
+        list.add(perfVariant("P03-720p", name+", 720p", tz, zink, ScreenResolution.MODE_720P, true, null, null));
+        list.add(perfVariant("P04-menu", name+", native, main menu only (no save)", tz, zink, nat, false, null, null));
+        list.add(perfVariant("P05-wsi-immediate", name+", native, Vulkan present mode IMMEDIATE (no driver vsync)", tz, zink, nat, true, null, "MESA_VK_WSI_PRESENT_MODE=immediate"));
+        list.add(perfVariant("P06-no-glthread", name+", native, mesa_glthread=false", tz, zink, nat, true, null, "mesa_glthread=false"));
+        list.add(perfVariant("P07-vsync-off-720p", name+", 720p, game VSync OFF", tz, zink, ScreenResolution.MODE_720P, true, "vsync=false", null));
+        if (dri != null) list.add(perfVariant("P08-zink-xlib", "Zink "+DefaultVersion.ZINK+" (xlib), native", tz, DefaultVersion.ZINK, nat, true, null, null));
+        if (GPUHelper.isAdreno(context)) list.add(perfVariant("P09-opengl-kgsl", "OpenGL (Freedreno KGSL), native", "turnip,opengl", null, nat, true, null, null));
+        return list;
+    }
+
+    public static List<Variant> buildVariants(Context context, int mode) {
+        if (mode == MODE_PERF) return buildPerfVariants(context);
+        return buildVariants(context, mode == MODE_LONG);
     }
 
     // ---------------------------------------------------------------------------------------------------------------
@@ -168,19 +228,53 @@ public class Diagnostics {
     // start / restore
     // ---------------------------------------------------------------------------------------------------------------
     public static int estimateMinutes(Context context, boolean longMode) {
-        int variants = buildVariants(context, longMode).size();
-        int perVariant = (longMode ? LONG_SECONDS : SHORT_SECONDS) + 25; // + loading of the app / unpacking / shutting down
+        return estimateMinutes(context, longMode ? MODE_LONG : MODE_SHORT);
+    }
+
+    public static int estimateMinutes(Context context, int mode) {
+        int variants = buildVariants(context, mode).size();
+        // + loading of the app / unpacking / shutting down; a big save needs 1.5-2 min to load
+        int perVariant = mode == MODE_PERF ? 150 + PERF_SETTLE_SECONDS + PERF_MEASURE_SECONDS : (mode == MODE_LONG ? LONG_SECONDS : SHORT_SECONDS) + 25;
         return Math.max(1, variants * perVariant / 60);
     }
 
+    /** gameRoot/saves: the newest save that is not an autosave (or the newest autosave). Null when there is none. */
+    public static File findNewestSave(Context context) {
+        try {
+            Container container = (new ContainerManager(context)).getMainContainer();
+            String nativeSrc = container != null ? new EnvVars(container.getEnvVars()).get("NATIVE_SRC") : null;
+            String gameDirName = nativeSrc != null && !nativeSrc.isEmpty() ? new File(nativeSrc).getName() : "factorio";
+            File saves = new File(com.factorio.xenvironment.RootFS.find(context).getRootDir(), com.factorio.xenvironment.RootFS.HOME_PATH+"/"+gameDirName+"/saves");
+            File[] files = saves.listFiles((dir, n) -> n.endsWith(".zip") && !n.endsWith(".tmp.zip"));
+            if (files == null || files.length == 0) return null;
+            File best = null, bestAuto = null;
+            for (File file : files) {
+                boolean auto = file.getName().startsWith("_autosave");
+                if (auto) {
+                    if (bestAuto == null || file.lastModified() > bestAuto.lastModified()) bestAuto = file;
+                }
+                else if (best == null || file.lastModified() > best.lastModified()) best = file;
+            }
+            return best != null ? best : bestAuto;
+        }
+        catch (Exception e) {
+            return null;
+        }
+    }
+
     public static void start(Activity activity, boolean longMode) {
+        start(activity, longMode ? MODE_LONG : MODE_SHORT);
+    }
+
+    public static void start(Activity activity, int mode) {
+        boolean longMode = mode == MODE_LONG;
         try {
             Container container = (new ContainerManager(activity)).getMainContainer();
             File dir = logDir();
             if (container == null || dir == null) return;
 
             String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date());
-            File runDir = new File(dir, "diagnostics-"+stamp);
+            File runDir = new File(dir, (mode == MODE_PERF ? "perftest-" : "diagnostics-")+stamp);
             runDir.mkdirs();
 
             JSONObject snapshot = new JSONObject();
@@ -190,16 +284,30 @@ public class Diagnostics {
             snapshot.put("block1", container.getExtra(GraphicsDrivers.EXTRA_BLOCK_TURNIP));
             snapshot.put("block2", container.getExtra(GraphicsDrivers.EXTRA_BLOCK_VORTEK));
             snapshot.put("config2", container.getExtra(GraphicsDrivers.EXTRA_CONFIG_VORTEK));
+            snapshot.put("screenSize", container.getScreenSize());
 
             JSONObject state = new JSONObject();
             state.put("longMode", longMode);
+            state.put("mode", mode);
+            File save = mode == MODE_PERF ? findNewestSave(activity) : null;
+            String savePath = save != null ? save.getPath() : "";
+            if (save != null && !save.getName().matches("[A-Za-z0-9._-]+")) {
+                // the game command line is split at spaces: give the save a plain name for the run (removed at the end)
+                File link = new File(save.getParentFile(), "perftest-save.zip");
+                link.delete();
+                FileUtils.symlink(save.getPath(), link.getPath());
+                savePath = link.getPath();
+            }
+            state.put("save", savePath);
             state.put("index", 0);
             state.put("runDir", runDir.getPath());
             state.put("startedAt", System.currentTimeMillis());
             state.put("snapshot", snapshot);
             writeState(activity, state);
 
-            appendSummary(runDir, "Diagnostics "+(longMode ? "LONG" : "SHORT")+" started "+new Date()+"\n"+deviceInfo(activity)+"\n");
+            appendSummary(runDir, (mode == MODE_PERF ? "Performance tests" : "Diagnostics "+(longMode ? "LONG" : "SHORT"))+" started "+new Date()+"\n"+deviceInfo(activity)+
+                (mode == MODE_PERF ? "save: "+(save != null ? save.getName() : "NONE (main menu only)")+"\n"+
+                    "each test: the save loads, "+PERF_SETTLE_SECONDS+" s wait, "+PERF_MEASURE_SECONDS+" s measuring; details in <test>/perf-summary.txt and perf.csv\n" : "")+"\n");
             launchVariant(activity, runDir.getPath());
         }
         catch (Exception e) {
@@ -242,6 +350,15 @@ public class Diagnostics {
         }
     }
 
+    /** Puts the user's config back without ending the run (the backup stays for the next test). */
+    private static void resetConfigFromBackup(Context context) {
+        File backup = new File(context.getFilesDir(), "diagnostics-config-backup.ini");
+        String path = FileUtils.readString(new File(context.getFilesDir(), "diagnostics-config-path.txt"));
+        if (backup.isFile() && path != null && !path.trim().isEmpty()) copy(backup, new File(path.trim()));
+        File dir = logDir();
+        if (dir != null) new File(dir, "config-patch-result.txt").delete();
+    }
+
     private static void restoreConfig(Context context) {
         File backup = new File(context.getFilesDir(), "diagnostics-config-backup.ini");
         File pathFile = new File(context.getFilesDir(), "diagnostics-config-path.txt");
@@ -270,6 +387,8 @@ public class Diagnostics {
                 container.putExtra(GraphicsDrivers.EXTRA_BLOCK_TURNIP, snapshot.optString("block1"));
                 container.putExtra(GraphicsDrivers.EXTRA_BLOCK_VORTEK, snapshot.optString("block2"));
                 container.putExtra(GraphicsDrivers.EXTRA_CONFIG_VORTEK, snapshot.optString("config2"));
+                String screenSize = snapshot.optString("screenSize");
+                if (!screenSize.isEmpty()) container.setScreenSize(screenSize);
                 container.putExtra("graphicsDriver", ""); // force re-extraction of the user's driver
                 container.saveData();
             }
@@ -278,6 +397,11 @@ public class Diagnostics {
             Log.e(TAG, "restore failed", e);
         }
         restoreConfig(context);
+        try {
+            String save = state.optString("save");
+            if (save.endsWith("/perftest-save.zip")) new File(save).delete();
+        }
+        catch (Exception e) {}
         stateFile(context).delete();
         return runDir;
     }
@@ -305,8 +429,9 @@ public class Diagnostics {
                 return null;
             }
             boolean longMode = state.getBoolean("longMode");
+            int mode = state.optInt("mode", longMode ? MODE_LONG : MODE_SHORT);
             int index = state.getInt("index");
-            List<Variant> variants = buildVariants(activity, longMode);
+            List<Variant> variants = buildVariants(activity, mode);
             if (index >= variants.size()) {
                 finishRun(activity);
                 return null;
@@ -317,10 +442,33 @@ public class Diagnostics {
             container.setGraphicsDriver(variant.driver);
             if (variant.vortekConfig != null) container.putExtra(GraphicsDrivers.EXTRA_CONFIG_VORTEK, variant.vortekConfig+"|");
             EnvVars envVars = new EnvVars(snapshot.optString("envVars"));
-            // the game config file is kept between launches: every setup starts from the defaults, otherwise the keys of the
-            // previous setup would leak into this one ("reset" rewrites the file)
             envVars.remove("NATIVE_GFX");
-            envVars.put("NATIVE_GFX", variant.nativeGfx != null ? variant.nativeGfx : "reset");
+            envVars.remove("NATIVE_GFX_PATCH");
+            if (variant.perf) {
+                // every test starts from the user's own game config: undo the keys a previous test changed
+                resetConfigFromBackup(activity);
+                // the user's own game config (graphics quality, ...) is used; only gfxPatch keys change
+                if (variant.gfxPatch != null) envVars.put("NATIVE_GFX_PATCH", variant.gfxPatch);
+                String save = state.optString("save");
+                if (variant.loadGame && !save.isEmpty() && new File(save).isFile()) {
+                    String args = envVars.get("NATIVE_ARGS");
+                    envVars.put("NATIVE_ARGS", ((args != null ? args+" " : "")+"--load-game "+save).trim());
+                }
+                // driver package (Zink version) and resolution of this test
+                if (variant.zinkVersion != null) {
+                    com.factorio.core.KeyValueSet[] configs = GraphicsDrivers.parseConfigs(variant.driver, snapshot.optString("graphicsDriverConfig"));
+                    configs[1].put("version", variant.zinkVersion);
+                    container.setGraphicsDriverConfig(configs[0]+"|"+configs[1]);
+                }
+                else container.setGraphicsDriverConfig(snapshot.optString("graphicsDriverConfig"));
+                String screenSize = variant.screenMode >= 0 ? ScreenResolution.forMode(activity, variant.screenMode) : snapshot.optString("screenSize");
+                if (!screenSize.isEmpty()) container.setScreenSize(screenSize);
+            }
+            else {
+                // the game config file is kept between launches: every setup starts from the defaults, otherwise the keys of the
+                // previous setup would leak into this one ("reset" rewrites the file)
+                envVars.put("NATIVE_GFX", variant.nativeGfx != null ? variant.nativeGfx : "reset");
+            }
             if (variant.extraEnv != null) {
                 for (String item : variant.extraEnv.split(";")) {
                     int eq = item.indexOf('=');
@@ -362,6 +510,8 @@ public class Diagnostics {
         private Callback<String> logCallback;
         private final AtomicBoolean finished = new AtomicBoolean(false);
         private XServerView xServerView;
+        private PerfMonitor monitor;
+        private volatile boolean measureScheduled = false;
 
         Session(XServerDisplayActivity activity, JSONObject state, Variant variant, int index, int total, boolean longMode) throws Exception {
             this.activity = activity;
@@ -383,6 +533,7 @@ public class Diagnostics {
             final SimpleDateFormat time = new SimpleDateFormat("HH:mm:ss.SSS", Locale.US);
             logCallback = (line) -> {
                 if (line == null || line.startsWith("xserver:")) return;
+                if (variant.perf) onGameLine(line);
                 synchronized (Session.this) {
                     try {
                         if (logWriter != null) logWriter.write("["+time.format(new Date())+"] "+line+"\n");
@@ -396,9 +547,36 @@ public class Diagnostics {
             }
             catch (Exception e) {}
 
-            long seconds = longMode ? LONG_SECONDS : SHORT_SECONDS;
+            long seconds = variant.perf ? PERF_MAX_SECONDS : (longMode ? LONG_SECONDS : SHORT_SECONDS);
             // watchdog: the game never started (stuck unpacking, missing files, ...)
             handler.postDelayed(() -> finish("timeout: game environment did not start within "+(seconds + 120)+" s"), (seconds + 120) * 1000);
+        }
+
+        /**
+         * Performance tests: the measurement starts when the game is ready. With a save: after "Loading script.dat" (the
+         * map is loaded); main menu: after "Factorio initialised". Then PERF_SETTLE_SECONDS wait, PERF_MEASURE_SECONDS measure.
+         */
+        private void onGameLine(String line) {
+            if (measureScheduled) return;
+            boolean saveLoaded = line.contains("Loading script.dat");
+            boolean menuReady = line.contains("Factorio initialised") && !willLoadSave();
+            if (!saveLoaded && !menuReady) return;
+            measureScheduled = true;
+            handler.post(() -> {
+                if (monitor != null) monitor.setPhase("settle");
+                handler.postDelayed(() -> {
+                    if (monitor != null) monitor.setPhase("measure");
+                    handler.postDelayed(() -> {
+                        if (monitor != null) monitor.setPhase("end");
+                        finish("completed");
+                    }, PERF_MEASURE_SECONDS * 1000L);
+                }, PERF_SETTLE_SECONDS * 1000L);
+            });
+        }
+
+        private boolean willLoadSave() {
+            String save = state.optString("save");
+            return variant.loadGame && !save.isEmpty() && new File(save).isFile();
         }
 
 
@@ -461,6 +639,14 @@ public class Diagnostics {
         public void onEnvironmentStarted(XServerView view) {
             this.xServerView = view;
             this.startedAt = System.currentTimeMillis();
+            // performance log for every setup (perf.csv / perf-summary.txt in the setup's folder)
+            monitor = PerfMonitor.start(activity, variantDir, variant.id+"  "+variant.title);
+            monitor.setPhase("loading");
+            if (variant.perf) {
+                // no fixed end: the game decides when it is ready (onGameLine); PERF_MAX_SECONDS is the limit
+                handler.postDelayed(() -> finish("timeout: the game was not ready for measuring within "+PERF_MAX_SECONDS+" s"), PERF_MAX_SECONDS * 1000L);
+                return;
+            }
             final int seconds = longMode ? LONG_SECONDS : SHORT_SECONDS;
 
             if (longMode) {
@@ -523,10 +709,16 @@ public class Diagnostics {
             catch (Exception e) {}
 
             long elapsed = startedAt > 0 ? (System.currentTimeMillis() - startedAt) / 1000 : -1;
+            String perfLine = "";
+            if (monitor != null) {
+                monitor.event("finish: "+status);
+                monitor.stop();
+                perfLine = "      perf: "+monitor.shortLine()+"\n";
+            }
             try {
                 File dir = logDir();
                 if (dir != null) {
-                    for (String name : new String[]{"driver-report.txt", "vortek-report.txt", "factorio-native.log"}) {
+                    for (String name : new String[]{"driver-report.txt", "vortek-report.txt", "factorio-native.log", "config-patch-result.txt"}) {
                         File file = new File(dir, name);
                         if (file.isFile()) copy(file, new File(variantDir, name));
                     }
@@ -539,7 +731,7 @@ public class Diagnostics {
                 result.append("key lines of the game log:\n").append(extractKeyLines(new File(variantDir, "log.txt")));
                 appendLine(new File(variantDir, "result.txt"), result.toString());
 
-                appendSummary(runDir, String.format(Locale.US, "[%d/%d] %-26s %-48s -> %s (%d s)\n", index + 1, total, variant.id, variant.title, status, elapsed)+pictureNote);
+                appendSummary(runDir, String.format(Locale.US, "[%d/%d] %-26s %-48s -> %s (%d s)\n", index + 1, total, variant.id, variant.title, status, elapsed)+pictureNote+perfLine);
                 state.put("index", index + 1);
                 writeState(activity, state);
             }
