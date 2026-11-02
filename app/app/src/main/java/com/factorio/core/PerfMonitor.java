@@ -69,6 +69,8 @@ public final class PerfMonitor {
     private final Map<String, double[]> threadSums = new HashMap<>(); // "game/name" -> {sum %, samples, max %}
     private boolean measureSeen = false;
     private boolean measuring = false;
+    private WaitSampler waitSampler;
+    private String waitSummary;
 
     private PerfMonitor(Context context, File dir, String label) {
         this.context = context.getApplicationContext();
@@ -115,11 +117,31 @@ public final class PerfMonitor {
                 threadSums.clear();
             }
             reqAtMeasureStart = PerfStats.snapshotRequests();
+            startWaitSampler();
         }
         else if (measuring) {
             measuring = false;
             reqAtMeasureEnd = PerfStats.snapshotRequests();
+            stopWaitSampler();
         }
+    }
+
+    private synchronized void startWaitSampler() {
+        if (waitSampler != null) return;
+        int pid = gamePid > 0 ? gamePid : findGamePid();
+        if (pid <= 0) {
+            event("wait sampler: game process not found");
+            return;
+        }
+        waitSampler = new WaitSampler(pid);
+        waitSampler.start();
+    }
+
+    private synchronized void stopWaitSampler() {
+        if (waitSampler == null) return;
+        waitSampler.stop();
+        waitSummary = waitSampler.summary(10);
+        waitSampler = null;
     }
 
     public void event(String text) {
@@ -494,6 +516,7 @@ public final class PerfMonitor {
         running = false;
         if (thread != null) thread.interrupt();
         if (measuring) setPhase("end");
+        stopWaitSampler();
         if (reqAtMeasureEnd == null) reqAtMeasureEnd = PerfStats.snapshotRequests();
         clearCurrent(this);
         try {
@@ -571,6 +594,9 @@ public final class PerfMonitor {
             Map.Entry<String, double[]> t = threads.get(i);
             sb.append(String.format(Locale.US, "  %-34s %6.1f / %6.1f\n", t.getKey(), t.getValue()[0] / Math.max(1, t.getValue()[1]), t.getValue()[2]));
         }
+
+        if (waitSummary != null) sb.append('\n').append(waitSummary);
+        else if (!measureSeen) sb.append("\n(wait analysis runs only in the measure phase of the performance tests)\n");
 
         sb.append("\nmost expensive X requests (count, total ms, avg us, errors):\n");
         if (reqAtMeasureStart != null && reqAtMeasureEnd != null) {
