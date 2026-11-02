@@ -426,7 +426,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
                     sb.append("  dri/: ").append(driFiles != null ? java.util.Arrays.toString(driFiles) : "MISSING").append("\n");
                     String[] deps = new File(zinkDriDir, "deps").list();
                     sb.append("  deps/: ").append(deps != null ? java.util.Arrays.toString(deps) : "none").append("\n");
-                    sb.append("  X server: DRI3 1.2 / Present 1.2 for kopper\n");
+                    sb.append("  X server DRI3 / Present answer: ").append(modernDri3 ? "1.2 / 1.2 (kopper)" : "1.0 / 1.0 (kopper will say DRI3 not available)").append("\n");
                 }
             }
 
@@ -899,9 +899,12 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
      * DRI3 1.0 / Present 1.0, the versions they were tested with.
      */
     public boolean useModernDri3() {
-        return graphicsDriver != null && !GraphicsDrivers.isLegacyMode(graphicsDriver) && GraphicsDrivers.ZINK.equals(graphicsDriver[1])
-            && rootFS != null && new File(rootFS.getLibDir(), "zink-dri/libGL.so.1").exists();
+        return modernDri3;
     }
+
+    // Decided while the driver files are extracted: graphicsDriver is cleared after the start (setupXEnvironment),
+    // long before the game asks the X server for its DRI3 / Present versions (r41 bug: always answered 1.0).
+    private volatile boolean modernDri3 = false;
 
     /** true when the Vortek + Gladio / Zink 22.2.5 block is selected (used by XServer to pick the GLX implementation). */
     public boolean isLegacyGraphics() {
@@ -981,6 +984,7 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
     }
 
     private void extractGraphicsDriverFiles() {
+        modernDri3 = false;
         if (GraphicsDrivers.isLegacyMode(graphicsDriver)) {
             extractLegacyGraphicsDriverFiles();
             return;
@@ -1041,6 +1045,10 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
                 if (changed) GeneralComponents.extractFile(GeneralComponents.Type.ZINK, this, zinkVersion, DefaultVersion.ZINK);
                 break;
         }
+
+        // after the extraction: a Zink DRI package has just put its Mesa into usr/lib/zink-dri
+        modernDri3 = GraphicsDrivers.ZINK.equals(graphicsDriver[1]) && new File(libDir, "zink-dri/libGL.so.1").exists();
+        android.util.Log.i("Factorio", "X server DRI3/Present: "+(modernDri3 ? "1.2 (Zink DRI / kopper)" : "1.0"));
     }
 
     private void showTouchpadHelpDialog() {
