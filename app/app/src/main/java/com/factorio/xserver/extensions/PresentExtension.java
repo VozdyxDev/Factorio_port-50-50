@@ -30,6 +30,8 @@ import java.io.IOException;
 public class PresentExtension extends Extension {
     public static final byte MAJOR_VERSION = 1;
     public static final byte MINOR_VERSION = 0;
+    /** Present 1.2 together with DRI3 1.2 (Zink kopper / Vulkan WSI modifiers path). */
+    public static final byte MINOR_VERSION_MODERN = 2;
     private static final int FAKE_INTERVAL = 1000000 / 60;
 
     public enum Kind {PIXMAP, MSC_NOTIFY}
@@ -40,7 +42,9 @@ public class PresentExtension extends Extension {
     private static abstract class ClientOpcodes {
         private static final byte QUERY_VERSION = 0;
         private static final byte PRESENT_PIXMAP = 1;
+        private static final byte NOTIFY_MSC = 2;
         private static final byte SELECT_INPUT = 3;
+        private static final byte QUERY_CAPABILITIES = 4;
     }
 
     private static class Event {
@@ -92,7 +96,10 @@ public class PresentExtension extends Extension {
     }
 
     private void queryVersion(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
-        inputStream.skip(8);
+        int clientMajor = inputStream.readInt();
+        int clientMinor = inputStream.readInt();
+        int minor = xServer.activity != null && xServer.activity.useModernDri3() ? MINOR_VERSION_MODERN : MINOR_VERSION;
+        if (clientMajor == MAJOR_VERSION && clientMinor < minor) minor = clientMinor;
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
@@ -100,8 +107,32 @@ public class PresentExtension extends Extension {
             outputStream.writeShort(client.getSequenceNumber());
             outputStream.writeInt(0);
             outputStream.writeInt(MAJOR_VERSION);
-            outputStream.writeInt(MINOR_VERSION);
+            outputStream.writeInt(minor);
             outputStream.writePad(16);
+        }
+    }
+
+    // NotifyMSC (2): there is no real vblank counter; answer at once with a CompleteNotify of kind MSC_NOTIFY
+    private void notifyMSC(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
+        int windowId = inputStream.readInt();
+        int serial = inputStream.readInt();
+        inputStream.skip(client.getRemainingRequestLength());
+
+        Window window = xServer.windowManager.getWindow(windowId);
+        if (window == null) throw new BadWindow(windowId);
+        sendCompleteNotify(window, serial, Kind.MSC_NOTIFY, Mode.COPY, 0, 0);
+    }
+
+    // QueryCapabilities (4): no async / flip / fence capabilities, every present is a copy
+    private void queryCapabilities(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
+        inputStream.skip(4); // target
+        try (XStreamLock lock = outputStream.lock()) {
+            outputStream.writeByte(RESPONSE_CODE_SUCCESS);
+            outputStream.writeByte((byte)0);
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writeInt(0);
+            outputStream.writeInt(0); // capabilities
+            outputStream.writePad(20);
         }
     }
 
@@ -219,6 +250,14 @@ public class PresentExtension extends Extension {
                 try (XLock lock = xServer.lock(XServer.Lockable.WINDOW_MANAGER, XServer.Lockable.PIXMAP_MANAGER)) {
                     presentPixmap(client, inputStream, outputStream);
                 }
+                break;
+            case ClientOpcodes.NOTIFY_MSC:
+                try (XLock lock = xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {
+                    notifyMSC(client, inputStream, outputStream);
+                }
+                break;
+            case ClientOpcodes.QUERY_CAPABILITIES:
+                queryCapabilities(client, inputStream, outputStream);
                 break;
             case ClientOpcodes.SELECT_INPUT:
                 try (XLock lock = xServer.lock(XServer.Lockable.WINDOW_MANAGER)) {

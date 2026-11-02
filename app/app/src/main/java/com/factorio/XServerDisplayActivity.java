@@ -412,12 +412,22 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
                 String version = graphicsDriverConfig[1].get("version", DefaultVersion.ZINK);
                 sb.append("\nOPENGL: Zink, selected version '").append(version).append("'");
                 sb.append(GeneralComponents.isBuiltinComponent(GeneralComponents.Type.ZINK, version) ? " (built-in)\n" : " (imported)\n");
-                File[] gl = libDir.listFiles((dir, name) -> name.startsWith("libGL.so."));
+                File zinkDriDir = new File(libDir, "zink-dri");
+                boolean dri = new File(zinkDriDir, "libGL.so.1").exists();
+                File glDir = dri ? zinkDriDir : libDir; // a Zink DRI package keeps its Mesa in usr/lib/zink-dri
+                File[] gl = glDir.listFiles((dir, name) -> name.startsWith("libGL.so."));
                 if (gl != null && gl.length > 0) {
                     java.util.Arrays.sort(gl);
                     sb.append(DriverReport.describe(gl[gl.length - 1])).append("\n");
                 }
-                else sb.append("  libGL.so.*: MISSING\n");
+                else sb.append("  libGL.so.*: MISSING in ").append(glDir.getPath()).append("\n");
+                if (dri) {
+                    String[] driFiles = new File(zinkDriDir, "dri").list();
+                    sb.append("  dri/: ").append(driFiles != null ? java.util.Arrays.toString(driFiles) : "MISSING").append("\n");
+                    String[] deps = new File(zinkDriDir, "deps").list();
+                    sb.append("  deps/: ").append(deps != null ? java.util.Arrays.toString(deps) : "none").append("\n");
+                    sb.append("  X server: DRI3 1.2 / Present 1.2 for kopper\n");
+                }
             }
 
             // direct OpenGL (NATIVE_MESA_SRC): without this section the report only described Zink while the game ran on something else
@@ -882,6 +892,15 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
             ControlsProfile profile = inputControlsView.getProfile();
             if (profile != null) showInputControls(profile);
         }
+    }
+
+    /**
+     * DRI3 1.2 / Present 1.2 for the X server: only with a Zink DRI package (kopper needs them). The other drivers keep
+     * DRI3 1.0 / Present 1.0, the versions they were tested with.
+     */
+    public boolean useModernDri3() {
+        return graphicsDriver != null && !GraphicsDrivers.isLegacyMode(graphicsDriver) && GraphicsDrivers.ZINK.equals(graphicsDriver[1])
+            && rootFS != null && new File(rootFS.getLibDir(), "zink-dri/libGL.so.1").exists();
     }
 
     /** true when the Vortek + Gladio / Zink 22.2.5 block is selected (used by XServer to pick the GLX implementation). */

@@ -19,6 +19,9 @@ import java.io.IOException;
 
 public class SyncExtension extends Extension {
     private final SparseBooleanArray fences = new SparseBooleanArray();
+    // fences created by DRI3 FenceFromFD: an xshmfence in shared memory that the client waits on
+    private final android.util.SparseArray<java.nio.ByteBuffer> shmFences = new android.util.SparseArray<>();
+    private static final int SHM_FENCE_MAP_SIZE = 4096;
 
     private static abstract class ClientOpcodes {
         private static final byte INITIALIZE = 0;
@@ -53,6 +56,32 @@ public class SyncExtension extends Extension {
     public void setTriggered(int id) {
         synchronized (fences) {
             if (fences.indexOfKey(id) >= 0) fences.put(id, true);
+            java.nio.ByteBuffer shm = shmFences.get(id);
+            if (shm != null) com.factorio.sysvshm.SysVSharedMemory.xshmfenceTrigger(shm);
+        }
+    }
+
+    /** DRI3 FenceFromFD: a fence backed by the client's xshmfence (fd of its shared memory). */
+    public void createShmFence(int id, int fd, boolean initiallyTriggered) throws XRequestError {
+        java.nio.ByteBuffer shm = fd >= 0 ? com.factorio.sysvshm.SysVSharedMemory.mapSHMSegment(fd, SHM_FENCE_MAP_SIZE, 0, false) : null;
+        synchronized (fences) {
+            if (fences.indexOfKey(id) >= 0) {
+                if (shm != null) com.factorio.sysvshm.SysVSharedMemory.unmapSHMSegment(shm, SHM_FENCE_MAP_SIZE);
+                throw new BadIdChoice(id);
+            }
+            fences.put(id, initiallyTriggered);
+            if (shm != null) {
+                shmFences.put(id, shm);
+                if (initiallyTriggered) com.factorio.sysvshm.SysVSharedMemory.xshmfenceTrigger(shm);
+            }
+        }
+    }
+
+    private void releaseShmFence(int id) {
+        java.nio.ByteBuffer shm = shmFences.get(id);
+        if (shm != null) {
+            shmFences.remove(id);
+            com.factorio.sysvshm.SysVSharedMemory.unmapSHMSegment(shm, SHM_FENCE_MAP_SIZE);
         }
     }
 
@@ -75,6 +104,8 @@ public class SyncExtension extends Extension {
             int id = inputStream.readInt();
             if (fences.indexOfKey(id) < 0) throw new BadFence(id);
             fences.put(id, true);
+            java.nio.ByteBuffer shm = shmFences.get(id);
+            if (shm != null) com.factorio.sysvshm.SysVSharedMemory.xshmfenceTrigger(shm);
         }
     }
 
@@ -95,6 +126,7 @@ public class SyncExtension extends Extension {
             int id = inputStream.readInt();
             if (fences.indexOfKey(id) < 0) throw new BadFence(id);
             fences.delete(id);
+            releaseShmFence(id);
         }
     }
 

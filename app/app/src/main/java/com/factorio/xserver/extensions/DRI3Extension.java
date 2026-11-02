@@ -31,6 +31,8 @@ import java.nio.ByteBuffer;
 public class DRI3Extension extends Extension {
     public static final byte MAJOR_VERSION = 1;
     public static final byte MINOR_VERSION = 0;
+    /** DRI3 1.2 (modifiers, PixmapFromBuffers): needed by Zink's kopper ("DRI3 not available" otherwise). */
+    public static final byte MINOR_VERSION_MODERN = 2;
     private final Callback<Drawable> onDestroyDrawableListener = (drawable) -> {
         ByteBuffer data = drawable.getData();
         SysVSharedMemory.unmapSHMSegment(data, data.capacity());
@@ -45,6 +47,8 @@ public class DRI3Extension extends Extension {
         private static final byte OPEN = 1;
         private static final byte PIXMAP_FROM_BUFFER = 2;
         private static final byte BUFFER_FROM_PIXMAP = 3;
+        private static final byte FENCE_FROM_FD = 4;
+        private static final byte GET_SUPPORTED_MODIFIERS = 6;
         private static final byte PIXMAP_FROM_BUFFERS = 7;
     }
 
@@ -57,8 +61,16 @@ public class DRI3Extension extends Extension {
         return "DRI3";
     }
 
+    /** 1.2 only for the Zink DRI (kopper) setup; everything else keeps the 1.0 it was tested with. */
+    private boolean modern() {
+        return xServer.activity != null && xServer.activity.useModernDri3();
+    }
+
     private void queryVersion(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
-        inputStream.skip(8);
+        int clientMajor = inputStream.readInt();
+        int clientMinor = inputStream.readInt();
+        int minor = modern() ? MINOR_VERSION_MODERN : MINOR_VERSION;
+        if (clientMajor == MAJOR_VERSION && clientMinor < minor) minor = clientMinor;
 
         try (XStreamLock lock = outputStream.lock()) {
             outputStream.writeByte(RESPONSE_CODE_SUCCESS);
@@ -66,7 +78,38 @@ public class DRI3Extension extends Extension {
             outputStream.writeShort(client.getSequenceNumber());
             outputStream.writeInt(0);
             outputStream.writeInt(MAJOR_VERSION);
-            outputStream.writeInt(MINOR_VERSION);
+            outputStream.writeInt(minor);
+            outputStream.writePad(16);
+        }
+    }
+
+    // FenceFromFD (4): the client's xshmfence for "the server is done with this pixmap" (Present idle fence)
+    private void fenceFromFd(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
+        inputStream.skip(4); // drawable
+        int fenceId = inputStream.readInt();
+        boolean initiallyTriggered = inputStream.readByte() == 1;
+        inputStream.skip(3);
+        int fd = inputStream.getAncillaryFd();
+        try {
+            SyncExtension sync = (SyncExtension)xServer.getExtensionByName("SYNC");
+            if (sync == null) throw new BadImplementation();
+            sync.createShmFence(fenceId, fd, initiallyTriggered);
+        }
+        finally {
+            if (fd >= 0) XConnectorEpoll.closeFd(fd); // the mapping stays valid without the fd
+        }
+    }
+
+    // GetSupportedModifiers (6): no explicit modifiers -> the client uses linear / implicit layouts
+    private void getSupportedModifiers(XClient client, XInputStream inputStream, XOutputStream outputStream) throws IOException, XRequestError {
+        inputStream.skip(8); // window, depth, bpp, pad
+        try (XStreamLock lock = outputStream.lock()) {
+            outputStream.writeByte(RESPONSE_CODE_SUCCESS);
+            outputStream.writeByte((byte)0);
+            outputStream.writeShort(client.getSequenceNumber());
+            outputStream.writeInt(0);   // no extra data
+            outputStream.writeInt(0);   // num_window_modifiers
+            outputStream.writeInt(0);   // num_screen_modifiers
             outputStream.writePad(16);
         }
     }
@@ -244,6 +287,12 @@ public class DRI3Extension extends Extension {
                 try (XLock lock = xServer.lock(XServer.Lockable.WINDOW_MANAGER, XServer.Lockable.DRAWABLE_MANAGER)) {
                     bufferFromPixmap(client, inputStream, outputStream);
                 }
+                break;
+            case ClientOpcodes.FENCE_FROM_FD:
+                fenceFromFd(client, inputStream, outputStream);
+                break;
+            case ClientOpcodes.GET_SUPPORTED_MODIFIERS:
+                getSupportedModifiers(client, inputStream, outputStream);
                 break;
             case ClientOpcodes.PIXMAP_FROM_BUFFERS:
                 try (XLock lock = xServer.lock(XServer.Lockable.WINDOW_MANAGER, XServer.Lockable.PIXMAP_MANAGER, XServer.Lockable.DRAWABLE_MANAGER)) {

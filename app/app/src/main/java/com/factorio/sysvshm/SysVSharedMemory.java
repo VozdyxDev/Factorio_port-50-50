@@ -97,4 +97,7 @@ public class SysVSharedMemory {
 
     /** DMA_BUF_IOCTL_SYNC (read). Returns 0 on success, -1 if the fd is not a dma-buf. */
     public static native int dmabufSync(int fd, boolean start);
+
+    /** Triggers an xshmfence (DRI3 FenceFromFD) mapped with mapSHMSegment: wakes the client waiting on it. */
+    public static native void xshmfenceTrigger(ByteBuffer fence);
 }

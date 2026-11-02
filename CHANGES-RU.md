@@ -1,3 +1,14 @@
+# r41 — X-сервер для Zink DRI (kopper)
+Лог r40: `DRI3 not available` → `Couldn't find matching GLX visual`. Kopper (Zink DRI) требует от X-сервера DRI3 ≥ 1.2 и
+Present ≥ 1.2, а у нас было 1.0 / 1.0.
+- Только когда выбран пакет Zink DRI, X-сервер отвечает DRI3 1.2 / Present 1.2 (остальные драйверы — прежние 1.0, как проверено).
+- DRI3: `FenceFromFD` (xshmfence клиента; раньше запрос отвергался, а его fd оставался непрочитанным), `GetSupportedModifiers`
+  (пустой список → линейные буферы).
+- Present: `NotifyMSC`, `QueryCapabilities`.
+- SYNC: заборы из `FenceFromFD` срабатывают в общей памяти (атомарно + FUTEX_WAKE, `SysVSharedMemory.xshmfenceTrigger`), когда
+  сервер перестал читать показанный буфер (IdleNotify).
+- driver-report: libGL, `dri/` и `deps/` пакета Zink DRI (раньше писал MISSING, потому что смотрел только в usr/lib).
+
 # r40 — Zink DRI (быстрый показ кадров)
 - Новый workflow `build-zink-dri.yml`: Zink как обычный DRI-драйвер Mesa (как в Pocket Foundry). Кадр показывается через
   Vulkan-swapchain Turnip (kopper → DRI3 / Present) и не читается каждый раз с GPU в память, как в xlib-сборке.

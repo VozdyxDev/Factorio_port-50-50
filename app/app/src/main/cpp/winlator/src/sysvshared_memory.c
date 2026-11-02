@@ -113,3 +113,20 @@ Java_com_factorio_sysvshm_SysVSharedMemory_dmabufSync(JNIEnv *env, jclass obj, j
     sync.flags = FIO_DMA_BUF_SYNC_READ | (start ? FIO_DMA_BUF_SYNC_START : FIO_DMA_BUF_SYNC_END);
     return ioctl(fd, FIO_DMA_BUF_IOCTL_SYNC, &sync);
 }
+
+/* xshmfence (libxshmfence, futex variant): one int in shared memory, 0 = not triggered, 1 = triggered,
+   -1 = triggered not yet and somebody sleeps in FUTEX_WAIT on it. The client creates it (DRI3 FenceFromFD) and
+   waits on it before it reuses a presented buffer; the X server triggers it when it no longer reads the buffer. */
+#include <linux/futex.h>
+#include <limits.h>
+
+JNIEXPORT void JNICALL
+Java_com_factorio_sysvshm_SysVSharedMemory_xshmfenceTrigger(JNIEnv *env, jclass obj, jobject data) {
+    int32_t *fence = data ? (*env)->GetDirectBufferAddress(env, data) : NULL;
+    if (!fence) return;
+    if (__sync_val_compare_and_swap(fence, 0, 1) == -1) {
+        if (__sync_val_compare_and_swap(fence, -1, 1) == -1) {
+            syscall(SYS_futex, fence, FUTEX_WAKE, INT_MAX, NULL, NULL, 0);
+        }
+    }
+}
