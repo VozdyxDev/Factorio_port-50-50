@@ -302,6 +302,15 @@ public class GuestProgramLauncherComponent extends EnvironmentComponent {
         }
         envVars.put("LD_LIBRARY_PATH", libPath);
 
+        // X_UNSET=A,B,C (tests): these variables are removed last, whoever set them (container, driver dialogs, defaults)
+        String unset = envVars.get("X_UNSET");
+        if (unset != null && !unset.isEmpty()) {
+            for (String name : unset.split(",")) {
+                if (!name.trim().isEmpty()) envVars.remove(name.trim());
+            }
+            envVars.remove("X_UNSET");
+        }
+
         // Factorio does not know that it runs through the glibc loader:
         //  - /proc/self/exe points to the loader, so it detects a wrong binaries path (rootfs/usr) and the updater fails
         //    with "File .../usr/arm64/factorio not found"  -> --executable-path tells it where the executable is;

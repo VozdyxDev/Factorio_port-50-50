@@ -119,14 +119,20 @@ public class Diagnostics {
         String zink = dri != null ? dri : DefaultVersion.ZINK;
         String name = "Zink "+zink;
         // (game VSync is not a key of Factorio 2.x config.ini - "vsync: NOT in the config" - so no VSync tests)
+        // Run r47 (2m_final, native 35 FPS): no thread at 100 % (GameUpdate 67 %, main 30-45 %, Zink 13 %), GPU ~44 %:
+        // the game waits. Suspects: environment variables left from Winlator that Pocket Foundry does not set.
+        // X_UNSET removes variables whoever set them. Most important tests first (the run can be stopped any time).
+        final String winlatorZink = "ZINK_DESCRIPTORS,ZINK_DEBUG";
+        final String likePocketFoundry = "ZINK_DESCRIPTORS,ZINK_DEBUG,TU_DEBUG,mesa_glthread,MESA_VK_WSI_USE_HWBUF,MESA_VK_WSI_PRESENT_MODE,vblank_mode,MESA_NO_ERROR,ZINK_CONTEXT_THREADED";
         list.add(perfVariant("P01-base", name+", native (baseline)", tz, zink, nat, true, null, null));
-        list.add(perfVariant("P02-720p", name+", 720p", tz, zink, ScreenResolution.MODE_720P, true, null, null));
-        list.add(perfVariant("P03-no-present-sync", name+", native, X server without dma-buf cache sync (watch the picture)", tz, zink, nat, true, null, "X_PRESENT_SYNC=0"));
-        list.add(perfVariant("P04-no-glthread", name+", native, mesa_glthread=false", tz, zink, nat, true, null, "mesa_glthread=false"));
-        list.add(perfVariant("P05-wsi-immediate", name+", native, Vulkan present mode IMMEDIATE", tz, zink, nat, true, null, "MESA_VK_WSI_PRESENT_MODE=immediate"));
-        if (dri != null) list.add(perfVariant("P06-zink-xlib", "Zink "+DefaultVersion.ZINK+" (xlib), native", tz, DefaultVersion.ZINK, nat, true, null, null));
+        list.add(perfVariant("P02-zink-defaults", name+", native, without ZINK_DESCRIPTORS=lazy and ZINK_DEBUG=compact", tz, zink, nat, true, null, "X_UNSET="+winlatorZink));
+        list.add(perfVariant("P03-like-pocket-foundry", name+", native, Mesa variables as Pocket Foundry (none of ours)", tz, zink, nat, true, null, "X_UNSET="+likePocketFoundry));
+        list.add(perfVariant("P04-no-lazy", name+", native, without ZINK_DESCRIPTORS=lazy", tz, zink, nat, true, null, "X_UNSET=ZINK_DESCRIPTORS"));
+        list.add(perfVariant("P05-no-compact", name+", native, without ZINK_DEBUG=compact", tz, zink, nat, true, null, "X_UNSET=ZINK_DEBUG"));
+        list.add(perfVariant("P06-no-glthread", name+", native, mesa_glthread=false", tz, zink, nat, true, null, "mesa_glthread=false"));
         if (GPUHelper.isAdreno(context)) list.add(perfVariant("P07-opengl-kgsl", "OpenGL (Freedreno KGSL), native", "turnip,opengl", null, nat, true, null, null));
-        list.add(perfVariant("P08-menu", name+", native, main menu only (no save)", tz, zink, nat, false, null, null));
+        list.add(perfVariant("P08-720p", name+", 720p", tz, zink, ScreenResolution.MODE_720P, true, null, null));
+        if (dri != null) list.add(perfVariant("P09-zink-xlib", "Zink "+DefaultVersion.ZINK+" (xlib), native", tz, DefaultVersion.ZINK, nat, true, null, null));
         return list;
     }
 

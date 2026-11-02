@@ -1,3 +1,14 @@
+# r48 — тесты переменных окружения Mesa
+Прогон r47 (2m_final, нативное): 34.8 FPS, процесс игры в top-app, все ядра разрешены (гипотеза про ядра не подтвердилась).
+Потоки игры: GameUpdate 67 %, главный ~30-45 %, Zink (gdrv0) 13 %, GPU ~44 % — ни один не упёрся: игра ждёт.
+Отличие от Pocket Foundry, которое ещё не проверяли: мы задаём переменные, оставшиеся от Winlator
+(`ZINK_DESCRIPTORS=lazy`, `ZINK_DEBUG=compact`, `TU_DEBUG=noconform`, `mesa_glthread`, `MESA_VK_WSI_*`, `vblank_mode`,
+`MESA_NO_ERROR`), они — ни одной.
+- `X_UNSET=A,B,C`: лаунчер удаляет эти переменные последним шагом, кто бы их ни задал.
+- Тесты: P02 без lazy/compact, P03 «как Pocket Foundry» (без всех перечисленных), P04 без lazy, P05 без compact, P06 без
+  glthread, P07 OpenGL KGSL, P08 720p, P09 xlib. Важные — первыми.
+- Частота GPU в perf.csv (`gpu_mhz`) ненадёжна: всегда 389 (gpuclk закрыт SELinux, devfreq/cur_freq не меняется).
+
 # r47 — где Android держит процесс игры
 Прогон на мегабазе (r45): нативное 35 FPS, 720p 58 FPS, OpenGL KGSL 38.7; GPU занят 43-57 %, X-сервер ~10 % ядра,
 Present 2.7 мс. Частоты: 6 ядер по 2745 МГц (макс. 3532), два самых быстрых ядра (макс. 4473) на 1017 МГц — простаивают;
