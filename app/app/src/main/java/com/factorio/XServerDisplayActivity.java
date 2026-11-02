@@ -661,6 +661,8 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
 
         envVars.putAll(container.getEnvVars());
         xServer.setWireTraceEnabled("1".equals(envVars.get("X11_WIRE_TRACE")));
+        // X_PRESENT_SYNC=0 (tests): no DMA_BUF_IOCTL_SYNC around the CPU read of a presented frame
+        presentDmabufSync = !"0".equals(envVars.get("X_PRESENT_SYNC"));
 
         environment = new XEnvironment(this, rootFS);
         environment.addComponent(new SysVSharedMemoryComponent(xServer, UnixSocketConfig.create(rootPath, UnixSocketConfig.SYSVSHM_SERVER_PATH)));
@@ -901,6 +903,12 @@ public class XServerDisplayActivity extends AppCompatActivity implements Navigat
      * DRI3 1.2 / Present 1.2 for the X server: only with a Zink DRI package (kopper needs them). The other drivers keep
      * DRI3 1.0 / Present 1.0, the versions they were tested with.
      */
+    private volatile boolean presentDmabufSync = true;
+
+    public boolean isPresentDmabufSync() {
+        return presentDmabufSync;
+    }
+
     public boolean useModernDri3() {
         return modernDri3;
     }

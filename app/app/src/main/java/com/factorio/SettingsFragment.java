@@ -218,8 +218,26 @@ public class SettingsFragment extends Fragment {
         String message;
         int title;
         if (mode == com.factorio.core.Diagnostics.MODE_PERF) {
+            // first the save: the tests should measure the base that is slow (a light save gives 60 FPS anyway)
+            final java.util.List<java.io.File> saves = com.factorio.core.Diagnostics.listSaves(activity);
+            if (saves.size() > 1 && chosenSave == null) {
+                String[] names = new String[saves.size()];
+                java.text.DateFormat format = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT);
+                for (int i = 0; i < names.length; i++) {
+                    names[i] = saves.get(i).getName()+"  ("+(saves.get(i).length() >> 20)+" MB, "+format.format(new java.util.Date(saves.get(i).lastModified()))+")";
+                }
+                new androidx.appcompat.app.AlertDialog.Builder(activity)
+                    .setTitle(R.string.diagnostics_perf_choose_save)
+                    .setItems(names, (dialog, which) -> {
+                        chosenSave = saves.get(which);
+                        startDiagnostics(mode);
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+                return;
+            }
             title = R.string.diagnostics_perf;
-            java.io.File save = com.factorio.core.Diagnostics.findNewestSave(activity);
+            java.io.File save = chosenSave != null ? chosenSave : com.factorio.core.Diagnostics.findNewestSave(activity);
             String dri = com.factorio.core.Diagnostics.findZinkDri(activity);
             message = getString(R.string.diagnostics_perf_confirm, count, minutes,
                 save != null ? save.getName() : getString(R.string.diagnostics_perf_no_save),
@@ -232,8 +250,14 @@ public class SettingsFragment extends Fragment {
         new androidx.appcompat.app.AlertDialog.Builder(activity)
             .setTitle(title)
             .setMessage(message)
-            .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(android.R.string.ok, (dialog, which) -> com.factorio.core.Diagnostics.start(activity, mode))
+            .setNegativeButton(android.R.string.cancel, (dialog, which) -> chosenSave = null)
+            .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                java.io.File save = chosenSave;
+                chosenSave = null;
+                com.factorio.core.Diagnostics.start(activity, mode, save);
+            })
             .show();
     }
+
+    private java.io.File chosenSave;
 }

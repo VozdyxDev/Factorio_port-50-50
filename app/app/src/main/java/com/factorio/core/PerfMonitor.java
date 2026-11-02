@@ -144,6 +144,10 @@ public final class PerfMonitor {
         }
         reqAtMeasureStart = PerfStats.snapshotRequests();
         event("monitor started: "+label);
+        for (String name : new String[]{"devfreq/min_freq", "devfreq/max_freq", "devfreq/cur_freq", "devfreq/governor", "max_gpuclk", "min_clock_mhz", "max_clock_mhz", "gpu_model", "thermal_pwrlevel"}) {
+            String value = readSmall("/sys/class/kgsl/kgsl-3d0/"+name);
+            event("gpu "+name+": "+(value != null ? value.trim() : "not readable"));
+        }
 
         new Handler(Looper.getMainLooper()).post(() -> {
             frameCallback = (frameTimeNanos) -> {
@@ -312,11 +316,14 @@ public final class PerfMonitor {
             String name = entry.getName();
             if (name.isEmpty() || !Character.isDigit(name.charAt(0))) continue;
             String cmdline = readSmall("/proc/"+name+"/cmdline");
-            if (cmdline != null && cmdline.contains("/bin/arm64/factorio") && !cmdline.contains("factorio-start.sh\0")) {
+            // the game: an argument that ends with /bin/arm64/factorio (the loader runs it); not factorio-start.sh
+            if (cmdline != null && (cmdline.contains("/bin/arm64/factorio\0") || cmdline.endsWith("/bin/arm64/factorio"))) {
                 try {
                     int pid = Integer.parseInt(name);
                     if (pid != myPid) {
                         event("game process found: pid "+pid);
+                        describePlacement("game", pid);
+                        describePlacement("app", myPid);
                         return pid;
                     }
                 }
@@ -324,6 +331,28 @@ public final class PerfMonitor {
             }
         }
         return -1;
+    }
+
+    /**
+     * Where Android lets the process run: allowed cores, cgroups (cpuset / top-app / background), nice and scheduling
+     * class. A game that is only allowed on the slower cores, or sits in a background group, cannot reach full speed.
+     */
+    private void describePlacement(String owner, int pid) {
+        String status = readSmall("/proc/"+pid+"/status");
+        if (status != null) {
+            for (String line : status.split("\n")) {
+                if (line.startsWith("Cpus_allowed_list") || line.startsWith("Threads")) event(owner+" "+line.replaceAll("\\s+", " "));
+            }
+        }
+        String cgroup = readSmall("/proc/"+pid+"/cgroup");
+        if (cgroup != null) event(owner+" cgroup: "+cgroup.trim().replace("\n", " | "));
+        String stat = readSmall("/proc/"+pid+"/stat");
+        if (stat != null && stat.lastIndexOf(')') > 0) {
+            String[] f = stat.substring(stat.lastIndexOf(')') + 2).split(" ");
+            if (f.length > 39) event(owner+" priority "+f[15]+", nice "+f[16]+", policy "+f[38]);
+        }
+        String cpuset = readSmall("/proc/"+pid+"/cpuset");
+        if (cpuset != null) event(owner+" cpuset: "+cpuset.trim());
     }
 
     /** "name:%:core ..." of the 4 busiest threads; total[0] = sum of all threads in % of one core. */

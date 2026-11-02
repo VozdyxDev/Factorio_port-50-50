@@ -178,7 +178,7 @@ public class PresentExtension extends Extension {
             if (perfWait != 0) com.factorio.core.PerfStats.presentRenderLockWaitNanos.addAndGet(System.nanoTime() - perfWait);
             if (pixmap != null) {
                 Drawable src = pixmap.drawable;
-                int syncFd = src.syncFd;
+                int syncFd = xServer.activity == null || xServer.activity.isPresentDmabufSync() ? src.syncFd : -1;
                 long perfSync = com.factorio.core.PerfStats.now();
                 if (syncFd >= 0) SysVSharedMemory.dmabufSync(syncFd, true);   // invalidate CPU cache before reading GPU-written memory
                 if (perfSync != 0) com.factorio.core.PerfStats.presentSyncNanos.addAndGet(System.nanoTime() - perfSync);

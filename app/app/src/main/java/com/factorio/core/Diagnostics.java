@@ -50,8 +50,8 @@ public class Diagnostics {
     public static final int LONG_SECONDS = 300;
     public static final int MODE_SHORT = 0, MODE_LONG = 1, MODE_PERF = 2;
     /** Performance tests: the save is loaded, then SETTLE s of waiting and MEASURE s of measuring; MAX is the limit. */
-    public static final int PERF_SETTLE_SECONDS = 15;
-    public static final int PERF_MEASURE_SECONDS = 45;
+    public static final int PERF_SETTLE_SECONDS = 10;
+    public static final int PERF_MEASURE_SECONDS = 30;
     public static final int PERF_MAX_SECONDS = 480;
     private static final String TAG = "Diagnostics";
     private static final String STATE_FILE = "diagnostics-state.json";
@@ -118,15 +118,15 @@ public class Diagnostics {
         String dri = findZinkDri(context);
         String zink = dri != null ? dri : DefaultVersion.ZINK;
         String name = "Zink "+zink;
-        list.add(perfVariant("P01-base", name+", native, game VSync as set (baseline)", tz, zink, nat, true, null, null));
-        list.add(perfVariant("P02-vsync-off", name+", native, game VSync OFF", tz, zink, nat, true, "vsync=false", null));
-        list.add(perfVariant("P03-720p", name+", 720p", tz, zink, ScreenResolution.MODE_720P, true, null, null));
-        list.add(perfVariant("P04-menu", name+", native, main menu only (no save)", tz, zink, nat, false, null, null));
-        list.add(perfVariant("P05-wsi-immediate", name+", native, Vulkan present mode IMMEDIATE (no driver vsync)", tz, zink, nat, true, null, "MESA_VK_WSI_PRESENT_MODE=immediate"));
-        list.add(perfVariant("P06-no-glthread", name+", native, mesa_glthread=false", tz, zink, nat, true, null, "mesa_glthread=false"));
-        list.add(perfVariant("P07-vsync-off-720p", name+", 720p, game VSync OFF", tz, zink, ScreenResolution.MODE_720P, true, "vsync=false", null));
-        if (dri != null) list.add(perfVariant("P08-zink-xlib", "Zink "+DefaultVersion.ZINK+" (xlib), native", tz, DefaultVersion.ZINK, nat, true, null, null));
-        if (GPUHelper.isAdreno(context)) list.add(perfVariant("P09-opengl-kgsl", "OpenGL (Freedreno KGSL), native", "turnip,opengl", null, nat, true, null, null));
+        // (game VSync is not a key of Factorio 2.x config.ini - "vsync: NOT in the config" - so no VSync tests)
+        list.add(perfVariant("P01-base", name+", native (baseline)", tz, zink, nat, true, null, null));
+        list.add(perfVariant("P02-720p", name+", 720p", tz, zink, ScreenResolution.MODE_720P, true, null, null));
+        list.add(perfVariant("P03-no-present-sync", name+", native, X server without dma-buf cache sync (watch the picture)", tz, zink, nat, true, null, "X_PRESENT_SYNC=0"));
+        list.add(perfVariant("P04-no-glthread", name+", native, mesa_glthread=false", tz, zink, nat, true, null, "mesa_glthread=false"));
+        list.add(perfVariant("P05-wsi-immediate", name+", native, Vulkan present mode IMMEDIATE", tz, zink, nat, true, null, "MESA_VK_WSI_PRESENT_MODE=immediate"));
+        if (dri != null) list.add(perfVariant("P06-zink-xlib", "Zink "+DefaultVersion.ZINK+" (xlib), native", tz, DefaultVersion.ZINK, nat, true, null, null));
+        if (GPUHelper.isAdreno(context)) list.add(perfVariant("P07-opengl-kgsl", "OpenGL (Freedreno KGSL), native", "turnip,opengl", null, nat, true, null, null));
+        list.add(perfVariant("P08-menu", name+", native, main menu only (no save)", tz, zink, nat, false, null, null));
         return list;
     }
 
@@ -238,6 +238,22 @@ public class Diagnostics {
         return Math.max(1, variants * perVariant / 60);
     }
 
+    /** All saves (gameRoot/saves/*.zip), newest first. */
+    public static List<File> listSaves(Context context) {
+        ArrayList<File> list = new ArrayList<>();
+        try {
+            Container container = (new ContainerManager(context)).getMainContainer();
+            String nativeSrc = container != null ? new EnvVars(container.getEnvVars()).get("NATIVE_SRC") : null;
+            String gameDirName = nativeSrc != null && !nativeSrc.isEmpty() ? new File(nativeSrc).getName() : "factorio";
+            File saves = new File(com.factorio.xenvironment.RootFS.find(context).getRootDir(), com.factorio.xenvironment.RootFS.HOME_PATH+"/"+gameDirName+"/saves");
+            File[] files = saves.listFiles((dir, n) -> n.endsWith(".zip") && !n.endsWith(".tmp.zip") && !n.equals("perftest-save.zip"));
+            if (files != null) for (File file : files) list.add(file);
+            java.util.Collections.sort(list, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        }
+        catch (Exception e) {}
+        return list;
+    }
+
     /** gameRoot/saves: the newest save that is not an autosave (or the newest autosave). Null when there is none. */
     public static File findNewestSave(Context context) {
         try {
@@ -245,7 +261,7 @@ public class Diagnostics {
             String nativeSrc = container != null ? new EnvVars(container.getEnvVars()).get("NATIVE_SRC") : null;
             String gameDirName = nativeSrc != null && !nativeSrc.isEmpty() ? new File(nativeSrc).getName() : "factorio";
             File saves = new File(com.factorio.xenvironment.RootFS.find(context).getRootDir(), com.factorio.xenvironment.RootFS.HOME_PATH+"/"+gameDirName+"/saves");
-            File[] files = saves.listFiles((dir, n) -> n.endsWith(".zip") && !n.endsWith(".tmp.zip"));
+            File[] files = saves.listFiles((dir, n) -> n.endsWith(".zip") && !n.endsWith(".tmp.zip") && !n.equals("perftest-save.zip"));
             if (files == null || files.length == 0) return null;
             File best = null, bestAuto = null;
             for (File file : files) {
@@ -267,6 +283,11 @@ public class Diagnostics {
     }
 
     public static void start(Activity activity, int mode) {
+        start(activity, mode, null);
+    }
+
+    /** @param chosenSave performance tests: the save to load (null = the newest one) */
+    public static void start(Activity activity, int mode, File chosenSave) {
         boolean longMode = mode == MODE_LONG;
         try {
             Container container = (new ContainerManager(activity)).getMainContainer();
@@ -289,7 +310,7 @@ public class Diagnostics {
             JSONObject state = new JSONObject();
             state.put("longMode", longMode);
             state.put("mode", mode);
-            File save = mode == MODE_PERF ? findNewestSave(activity) : null;
+            File save = mode == MODE_PERF ? (chosenSave != null && chosenSave.isFile() ? chosenSave : findNewestSave(activity)) : null;
             String savePath = save != null ? save.getPath() : "";
             if (save != null && !save.getName().matches("[A-Za-z0-9._-]+")) {
                 // the game command line is split at spaces: give the save a plain name for the run (removed at the end)
