@@ -5,7 +5,7 @@ apply plugin: 'com.android.application'
 def prebuiltNativeDir = project.findProperty('factorioPrebuiltNativeDir')
 
 // One version number for everything (CHANGES, diagnostics, "App version code" in the reports).
-def appVersion = 44
+def appVersion = 45
 
 // Release signing: a keystore from the CI secrets / gradle properties if it is given,
 // otherwise the same debug-fixed.keystore as before (same signature, so updates keep working).
