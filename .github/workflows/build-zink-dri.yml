@@ -16,10 +16,18 @@ name: Build Zink DRI (kopper, fast presentation)
 on:
   workflow_dispatch:
     inputs:
-      mesa_ref:
-        description: 'Mesa tag (mesa-26.2.0, mesa-26.1.5 ...)'
+      mesa_repo:
+        description: 'Mesa git repository. Default: the fork Pocket Foundry uses (Mesa 27, Android/KGSL)'
         required: true
-        default: 'mesa-26.2.0'
+        default: 'https://github.com/lfdevs/mesa-for-android-container.git'
+      mesa_ref:
+        description: 'Tag / branch (Pocket Foundry: mesa-27.0.0-devel-20261025-r1; upstream: mesa-26.2.0 with the repo gitlab.freedesktop.org/mesa/mesa.git)'
+        required: true
+        default: 'mesa-27.0.0-devel-20261025-r1'
+      pocket_foundry_patches:
+        description: 'Apply the Pocket Foundry patches (frame wait on the present thread, flush before HUD)'
+        type: boolean
+        default: true
       runner:
         description: 'ARM runner (glibc of the runner must not be newer than the rootfs glibc)'
         required: true
@@ -40,8 +48,14 @@ jobs:
     timeout-minutes: 90
     env:
       MESA_REF: ${{ inputs.mesa_ref }}
+      MESA_REPO: ${{ inputs.mesa_repo }}
       DEBIAN_FRONTEND: noninteractive
     steps:
+      - name: Checkout (patches)
+        uses: actions/checkout@v4
+        with:
+          path: repo
+
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -64,11 +78,24 @@ jobs:
 
       - name: Clone Mesa
         run: |
-          git ls-remote --exit-code --tags --heads \
-            https://gitlab.freedesktop.org/mesa/mesa.git "$MESA_REF" \
-            || { echo "::error::Ref '$MESA_REF' not found"; exit 1; }
-          git clone --depth 1 --branch "$MESA_REF" \
-            https://gitlab.freedesktop.org/mesa/mesa.git mesa-src
+          if [[ "$MESA_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            # a commit hash (the fork's tags may be renamed; Pocket Foundry pins eb3e7fd4f009cab04b1482aad4843c0bde28a786)
+            git init -q mesa-src && git -C mesa-src remote add origin "$MESA_REPO"
+            git -C mesa-src fetch --depth 1 origin "$MESA_REF" && git -C mesa-src checkout -q FETCH_HEAD
+          else
+            git ls-remote --exit-code --heads --tags "$MESA_REPO" "$MESA_REF" \
+              || { echo "::error::Ref '$MESA_REF' not found in $MESA_REPO (a commit hash works too)"; exit 1; }
+            git clone --depth 1 --branch "$MESA_REF" "$MESA_REPO" mesa-src
+          fi
+
+      - name: Apply Pocket Foundry patches (mesa-patches/pocket-foundry)
+        if: ${{ inputs.pocket_foundry_patches }}
+        working-directory: mesa-src
+        run: |
+          for p in "$GITHUB_WORKSPACE"/repo/mesa-patches/pocket-foundry/*.patch; do
+            echo "== $(basename "$p")"
+            patch -p1 --forward --no-backup-if-mismatch < "$p" || { echo "::error::$(basename "$p") does not apply to this Mesa"; exit 1; }
+          done
 
       - name: Configure
         working-directory: mesa-src
@@ -149,7 +176,7 @@ jobs:
 
       - name: Package
         run: |
-          VER="${MESA_REF#mesa-}"
+          VER=$(tr -d '\n' < mesa-src/VERSION); VER="${VER%%-*}"   # 27.0.0-devel -> 27.0.0
           ROOT="stage${PFX%/usr}"
           mkdir -p out
           tar --owner=0 --group=0 --numeric-owner -C "$ROOT" -cf - usr \

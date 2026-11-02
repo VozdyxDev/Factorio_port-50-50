@@ -1,0 +1,5 @@
+Patches from Pocket Foundry (GPL-3.0), runtime/mesa/patches:
+  0001-x11-wait-for-the-frame-before-presenting.patch  (Vulkan WSI X11: wait for the frame on the present thread)
+  0002-dri-submit-the-frame-before-the-hud.patch         (dri: flush before GALLIUM_HUD)
+Their Mesa: https://github.com/lfdevs/mesa-for-android-container  commit eb3e7fd4f009cab04b1482aad4843c0bde28a786
+            (tag mesa-27.0.0-devel-20261025-r1), built with -Dfreedreno-kmds=kgsl,msm, Zink + Turnip + freedreno.

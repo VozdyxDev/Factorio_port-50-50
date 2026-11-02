@@ -1,3 +1,13 @@
+# r53 — Mesa как у Pocket Foundry
+Из `runtime/` Pocket Foundry: их Turnip и Zink собраны не из обычной Mesa, а из форка
+**lfdevs/mesa-for-android-container** (Mesa 27.0.0-devel, коммит eb3e7fd4…, тег mesa-27.0.0-devel-20261025-r1) с двумя
+патчами. У нас — обычная Mesa 26.2.0. Прогон r52: TU_DEBUG=sysmem даёт 40.7 вместо 36.5 FPS (кадр на GPU дешевле) —
+то есть упор в то, как драйвер гоняет A830, а это и есть отличие их Mesa.
+- `mesa-patches/pocket-foundry/`: их 0001 (Vulkan WSI X11: ожидание кадра в потоке показа, не в потоке игры) и 0002.
+- `build-turnip.yml` и `build-zink-dri.yml`: по умолчанию их форк и тег, галочка «Apply the Pocket Foundry patches»,
+  можно указать и хэш коммита. Версия файла — из VERSION Mesa (turnip-27.0.0.tzst, zink-27.0.0-dri.tzst).
+- Тесты: P01 база, P02 sysmem, P03 OpenGL KGSL, P04 720p.
+
 # r52 — режимы отрисовки Turnip
 Прогон r51: ADPF / GameManager ничего не меняют (GPU 389 МГц, 36.5 FPS). По словам пользователя у Pocket Foundry
 частота GPU такая же низкая, а FPS выше → при той же частоте их GPU делает кадр быстрее. Сколько работы A830 делает на
