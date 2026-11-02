@@ -126,14 +126,16 @@ public class Diagnostics {
         // r48: the Mesa variables change nothing (35.9-36.7 FPS in all). Now: what the game threads wait for (WaitSampler).
         // r49: the main game thread spends ~43 % in an ioctl on /dev/kgsl-3d0 (OpenGL KGSL too: 39 %), GPU busy ~46 %:
         // CPU and GPU take turns instead of working in parallel. Now: which ioctl, and does a longer swapchain help.
+        // r51: ADPF / GameManager change nothing (GPU stays 389 MHz). The user: Pocket Foundry runs at the same low GPU
+        // clock with more FPS -> at the same clock its GPU does a frame faster: Turnip rendering mode (GMEM tiles vs direct
+        // sysmem, binning) decides how much work the A830 does per frame. TU_DEBUG keeps our "noconform".
         list.add(perfVariant("P01-base", name+", native (baseline)", tz, zink, nat, true, null, null));
-        // r50: the GPU stays at 389 of 1200 MHz (clock_mhz) while the main thread waits for it: ask Android for speed.
-        list.add(perfVariant("P02-perf-hint", name+", native, ADPF hint session + GameManager gameplay (X_PERF_HINT=1)", tz, zink, nat, true, null, "X_PERF_HINT=1"));
-        if (GPUHelper.isAdreno(context)) list.add(perfVariant("P03-opengl-kgsl-hint", "OpenGL (Freedreno KGSL), native, X_PERF_HINT=1", "turnip,opengl", null, nat, true, null, "X_PERF_HINT=1"));
-        if (GPUHelper.isAdreno(context)) list.add(perfVariant("P04-opengl-kgsl", "OpenGL (Freedreno KGSL), native", "turnip,opengl", null, nat, true, null, null));
-        list.add(perfVariant("P05-720p", name+", 720p", tz, zink, ScreenResolution.MODE_720P, true, null, null));
-        list.add(perfVariant("P06-like-pocket-foundry", name+", native, Mesa variables as Pocket Foundry (none of ours)", tz, zink, nat, true, null, "X_UNSET="+likePocketFoundry));
-        if (dri != null) list.add(perfVariant("P07-zink-xlib", "Zink "+DefaultVersion.ZINK+" (xlib), native", tz, DefaultVersion.ZINK, nat, true, null, null));
+        list.add(perfVariant("P02-sysmem", name+", native, Turnip direct rendering (TU_DEBUG=sysmem)", tz, zink, nat, true, null, "TU_DEBUG=noconform,sysmem"));
+        list.add(perfVariant("P03-gmem", name+", native, Turnip tile rendering always (TU_DEBUG=gmem)", tz, zink, nat, true, null, "TU_DEBUG=noconform,gmem"));
+        list.add(perfVariant("P04-nocb", name+", native, no concurrent binning (TU_DEBUG=nocb)", tz, zink, nat, true, null, "TU_DEBUG=noconform,nocb"));
+        list.add(perfVariant("P05-nolrz", name+", native, no LRZ (TU_DEBUG=nolrz)", tz, zink, nat, true, null, "TU_DEBUG=noconform,nolrz"));
+        if (GPUHelper.isAdreno(context)) list.add(perfVariant("P06-opengl-kgsl", "OpenGL (Freedreno KGSL), native", "turnip,opengl", null, nat, true, null, null));
+        list.add(perfVariant("P07-720p", name+", 720p", tz, zink, ScreenResolution.MODE_720P, true, null, null));
         return list;
     }
 

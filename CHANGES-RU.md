@@ -1,3 +1,9 @@
+# r52 — режимы отрисовки Turnip
+Прогон r51: ADPF / GameManager ничего не меняют (GPU 389 МГц, 36.5 FPS). По словам пользователя у Pocket Foundry
+частота GPU такая же низкая, а FPS выше → при той же частоте их GPU делает кадр быстрее. Сколько работы A830 делает на
+кадр, решает режим отрисовки Turnip (плитки GMEM или прямая отрисовка sysmem, binning, LRZ).
+- Тесты: P02 TU_DEBUG=sysmem, P03 gmem, P04 nocb, P05 nolrz (везде с нашим noconform), P06 OpenGL KGSL, P07 720p.
+
 # r51 — GPU стоит на минимальной частоте
 Прогон r50: `clock_mhz` читается и всё время замера = **389 МГц** (минимум, максимум 1200; governor msm-adreno-tz).
 Главный поток игры 43 % ждёт `WAITTIMESTAMP_CTXTID` (окончания работы GPU). GPU занят ~45 % → governor не поднимает
