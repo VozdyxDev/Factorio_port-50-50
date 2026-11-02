@@ -124,12 +124,15 @@ public class Diagnostics {
         // X_UNSET removes variables whoever set them. Most important tests first (the run can be stopped any time).
         final String likePocketFoundry = "ZINK_DESCRIPTORS,ZINK_DEBUG,TU_DEBUG,mesa_glthread,MESA_VK_WSI_USE_HWBUF,MESA_VK_WSI_PRESENT_MODE,vblank_mode,MESA_NO_ERROR,ZINK_CONTEXT_THREADED";
         // r48: the Mesa variables change nothing (35.9-36.7 FPS in all). Now: what the game threads wait for (WaitSampler).
+        // r49: the main game thread spends ~43 % in an ioctl on /dev/kgsl-3d0 (OpenGL KGSL too: 39 %), GPU busy ~46 %:
+        // CPU and GPU take turns instead of working in parallel. Now: which ioctl, and does a longer swapchain help.
         list.add(perfVariant("P01-base", name+", native (baseline)", tz, zink, nat, true, null, null));
-        if (GPUHelper.isAdreno(context)) list.add(perfVariant("P02-opengl-kgsl", "OpenGL (Freedreno KGSL), native", "turnip,opengl", null, nat, true, null, null));
-        list.add(perfVariant("P03-720p", name+", 720p", tz, zink, ScreenResolution.MODE_720P, true, null, null));
-        list.add(perfVariant("P04-like-pocket-foundry", name+", native, Mesa variables as Pocket Foundry (none of ours)", tz, zink, nat, true, null, "X_UNSET="+likePocketFoundry));
-        list.add(perfVariant("P05-no-glthread", name+", native, mesa_glthread=false", tz, zink, nat, true, null, "mesa_glthread=false"));
-        if (dri != null) list.add(perfVariant("P06-zink-xlib", "Zink "+DefaultVersion.ZINK+" (xlib), native", tz, DefaultVersion.ZINK, nat, true, null, null));
+        list.add(perfVariant("P02-4-images", name+", native, swapchain of at least 4 images (vk_x11_override_min_image_count=4)", tz, zink, nat, true, null, "vk_x11_override_min_image_count=4"));
+        if (GPUHelper.isAdreno(context)) list.add(perfVariant("P03-opengl-kgsl", "OpenGL (Freedreno KGSL), native", "turnip,opengl", null, nat, true, null, null));
+        list.add(perfVariant("P04-fifo", name+", native, Vulkan present mode FIFO", tz, zink, nat, true, null, "MESA_VK_WSI_PRESENT_MODE=fifo"));
+        list.add(perfVariant("P05-720p", name+", 720p", tz, zink, ScreenResolution.MODE_720P, true, null, null));
+        list.add(perfVariant("P06-like-pocket-foundry", name+", native, Mesa variables as Pocket Foundry (none of ours)", tz, zink, nat, true, null, "X_UNSET="+likePocketFoundry));
+        if (dri != null) list.add(perfVariant("P07-zink-xlib", "Zink "+DefaultVersion.ZINK+" (xlib), native", tz, DefaultVersion.ZINK, nat, true, null, null));
         return list;
     }
 

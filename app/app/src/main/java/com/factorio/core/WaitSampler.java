@@ -120,6 +120,21 @@ final class WaitSampler {
         }
         String name = syscallName(nr);
         // calls on a file descriptor: show what it is (GPU device, X socket, pipe, sync file ...)
+        if (nr == 29 && f.length > 2) {
+            // ioctl: which request (KGSL: wait for a GPU timestamp = waiting for the GPU to finish, gpu command = submit)
+            try {
+                int fd = (int)(long)Long.decode(f[1]);
+                long request = Long.decode(f[2]);
+                String target = fdName(fd);
+                String what;
+                int type = (int)((request >> 8) & 0xff), number = (int)(request & 0xff);
+                if (type == 0x09) what = kgslName(number);
+                else if (type == 'b') what = String.format(Locale.US, "dma-buf 0x%02x", number);
+                else what = String.format(Locale.US, "type 0x%02x nr 0x%02x", type, number);
+                return prefix+"ioctl "+target+" "+what;
+            }
+            catch (Exception e) {}
+        }
         if ((nr == 29 || nr == 63 || nr == 64 || nr == 65 || nr == 66 || nr == 67 || nr == 207 || nr == 212 || nr == 211 || nr == 206) && f.length > 1) {
             try {
                 long fd = Long.decode(f[1]);
@@ -156,6 +171,20 @@ final class WaitSampler {
         else if (target.length() > 40) target = "..."+target.substring(target.length() - 37);
         fdNames.put(key, target);
         return target;
+    }
+
+    private static String kgslName(int number) {
+        switch (number) {
+            case 0x02: return "GETPROPERTY";
+            case 0x06: return "WAITTIMESTAMP (waits for the GPU)";
+            case 0x07: return "WAITTIMESTAMP_CTXTID (waits for the GPU)";
+            case 0x10: return "READTIMESTAMP";
+            case 0x11: return "READTIMESTAMP_CTXTID";
+            case 0x13: return "DRAWCTXT_CREATE";
+            case 0x14: return "DRAWCTXT_DESTROY";
+            case 0x4A: return "GPU_COMMAND (submit)";
+            default: return String.format(Locale.US, "kgsl 0x%02x", number);
+        }
     }
 
     private static String syscallName(int nr) {

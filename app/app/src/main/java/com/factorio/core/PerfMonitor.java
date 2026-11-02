@@ -166,7 +166,7 @@ public final class PerfMonitor {
         }
         reqAtMeasureStart = PerfStats.snapshotRequests();
         event("monitor started: "+label);
-        for (String name : new String[]{"devfreq/min_freq", "devfreq/max_freq", "devfreq/cur_freq", "devfreq/governor", "max_gpuclk", "min_clock_mhz", "max_clock_mhz", "gpu_model", "thermal_pwrlevel"}) {
+        for (String name : new String[]{"clock_mhz", "gpuclk", "devfreq/min_freq", "devfreq/max_freq", "devfreq/cur_freq", "devfreq/governor", "max_gpuclk", "min_clock_mhz", "max_clock_mhz", "gpu_model", "thermal_pwrlevel"}) {
             String value = readSmall("/sys/class/kgsl/kgsl-3d0/"+name);
             event("gpu "+name+": "+(value != null ? value.trim() : "not readable"));
         }
@@ -462,6 +462,13 @@ public final class PerfMonitor {
     }
 
     private static String gpuClock() {
+        String mhz = readSmall("/sys/class/kgsl/kgsl-3d0/clock_mhz"); // already in MHz (if readable)
+        if (mhz != null) {
+            try {
+                return String.valueOf(Long.parseLong(mhz.trim()));
+            }
+            catch (NumberFormatException e) {}
+        }
         String value = readSmall("/sys/class/kgsl/kgsl-3d0/gpuclk");
         if (value == null) value = readSmall("/sys/class/kgsl/kgsl-3d0/devfreq/cur_freq");
         try {

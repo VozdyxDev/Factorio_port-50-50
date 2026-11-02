@@ -1,3 +1,12 @@
+# r50 — главный поток игры ждёт GPU
+Прогон r49 (WaitSampler, 2m_final, нативное): главный поток игры 34 % работает, **43.5 % спит в ioctl на /dev/kgsl-3d0**,
+22 % futex; GameUpdate 72 % работает. OpenGL KGSL: 40 % работает, 38.6 % kgsl ioctl (и 39.8 FPS). GPU занят ~46 %.
+Процессор и GPU работают по очереди, а не параллельно: игра ждёт окончания кадра на GPU.
+- WaitSampler расшифровывает ioctl: для KGSL — номер запроса (WAITTIMESTAMP = ожидание GPU, GPU_COMMAND = отправка).
+- Частота GPU: сначала `clock_mhz`, при старте пишутся все источники (что читается).
+- Тесты: P02 swapchain ≥ 4 изображений (`vk_x11_override_min_image_count=4`), P03 OpenGL KGSL, P04 FIFO, P05 720p,
+  P06 «как Pocket Foundry», P07 xlib.
+
 # r49 — на что ждут потоки игры
 Прогон r48: переменные Mesa ни на что не влияют (P01 36.3, без lazy/compact 36.2, «как Pocket Foundry» 36.5,
 без glthread 36.7 FPS). Ни один поток не на 100 %, GPU ~46 %: нужно понять, чего ждёт игра.
